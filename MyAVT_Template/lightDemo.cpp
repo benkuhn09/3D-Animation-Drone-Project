@@ -204,12 +204,16 @@ void renderSim(void) {
 	updateDrone(deltaTime);
 
 	float distance = 20.0f; // how far behind
-	float height = 5.0f;  // how far above
+	float height = 10.0f;  // how far above
 	float yawRad = drone.dirAngle * 3.14f / 180.0f;
 
 	cams[2].pos[0] = drone.pos[0] - sin(yawRad) * distance;
 	cams[2].pos[1] = drone.pos[1] + height;
 	cams[2].pos[2] = drone.pos[2] - cos(yawRad) * distance;
+
+	cams[2].target[0] = drone.pos[0];
+	cams[2].target[1] = drone.pos[1];
+	cams[2].target[2] = drone.pos[2];
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -554,7 +558,7 @@ void processMouseMotion(int xx, int yy)
 	float camZtemp = rAux * cos(alphaAux * 3.14f / 180.0f) * cos(betaAux * 3.14f / 180.0f);
 	float camYtemp = rAux * sin(betaAux * 3.14f / 180.0f);
 
-	if (activeCam == 2) {
+	/*if (activeCam == 2) {
 		// follow drone
 		float distance = 20.0f; // behind the drone
 		float height = 10.0f; // camera height above drone
@@ -570,8 +574,8 @@ void processMouseMotion(int xx, int yy)
 		cams[2].target[0] = drone.pos[0];
 		cams[2].target[1] = drone.pos[1] + targetHeight;
 		cams[2].target[2] = drone.pos[2];
-	}
-	else {
+	}*/
+	
 		// free orbit cameras (0 or 1)
 		camX = camXtemp;
 		camY = camYtemp;
@@ -584,7 +588,7 @@ void processMouseMotion(int xx, int yy)
 		cams[activeCam].target[0] = 0.0f;
 		cams[activeCam].target[1] = 0.0f;
 		cams[activeCam].target[2] = 0.0f;
-	}
+	
 
 
 //  uncomment this if not using an idle or refresh func
