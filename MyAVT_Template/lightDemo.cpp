@@ -81,6 +81,23 @@ struct Camera {
 Camera cams[3];
 int activeCam = 0;
 
+struct Drone {
+	float pos[3] = { 0.0f, 15.0f, 0.0f }; // world position (x,y,z)
+	float dirAngle = 0.0f;   // yaw (degrees) — heading in the XZ plane
+	float pitch = 0.0f;   // nose up/down (degrees) — used to influence forward motion
+	float roll = 0.0f;   // roll (degrees) — optional for visuals
+	float speed = 0.0f;   // horizontal speed scalar (units/sec)
+	float vSpeed = 0.0f;   // vertical speed (units/sec, positive = up)
+
+	// tuning parameters (optional)
+	float maxSpeed = 10.0f;
+	float maxVSpeed = 8.0f;
+	float turnRate = 90.0f;      // degrees/sec when turning (you can override per-key)
+	float pitchRate = 30.0f;     // degrees/sec when pitching
+};
+
+Drone drone;
+
 struct Building {
 	float height;
 	int meshID;
@@ -156,9 +173,44 @@ void initCity() {
 	}
 }
 
+void updateDrone(float deltaTime) {
+	// convert angles to radians
+	float yawRad = drone.dirAngle * 3.14f / 180.0f;
+	float pitchRad = drone.pitch * 3.14f / 180.0f;
+
+	// direction vector (XZ plane)
+	float dx = cos(pitchRad) * sin(yawRad);
+	float dz = cos(pitchRad) * cos(yawRad);
+	float dy = sin(pitchRad);
+
+	// update position
+	drone.pos[0] += dx * drone.speed * deltaTime;
+	drone.pos[1] += drone.vSpeed * deltaTime + dy * drone.speed * deltaTime;
+	drone.pos[2] += dz * drone.speed * deltaTime;
+
+	// prevent drone from going below the floor
+	if (drone.pos[1] < 1.0f) drone.pos[1] = 1.0f;
+}
+
+float lastTime = 0.0f;
+
 void renderSim(void) {
 
 	FrameCount++;
+
+	float currentTime = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+	float deltaTime = currentTime - lastTime;
+	lastTime = currentTime;
+	updateDrone(deltaTime);
+
+	float distance = 20.0f; // how far behind
+	float height = 5.0f;  // how far above
+	float yawRad = drone.dirAngle * 3.14f / 180.0f;
+
+	cams[2].pos[0] = drone.pos[0] - sin(yawRad) * distance;
+	cams[2].pos[1] = drone.pos[1] + height;
+	cams[2].pos[2] = drone.pos[2] - cos(yawRad) * distance;
+
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	renderer.activateRenderMeshesShaderProg(); // use the required GLSL program to draw the meshes with illumination
@@ -287,14 +339,24 @@ void renderSim(void) {
 	}
 
 	// drone rendering
-	float droneX = 0.0f;
+	/*float droneX = 0.0f;
 	float droneY = 15.0f;
 	float droneZ = 0.0f;
 	float droneScale = 1.0f;
 
 	mu.pushMatrix(gmu::MODEL);
 	mu.translate(gmu::MODEL, droneX, droneY, droneZ);
+	mu.scale(gmu::MODEL, droneScale, droneScale, droneScale);*/
+
+	float droneScale = 1.0f;
+
+	mu.pushMatrix(gmu::MODEL);
+	mu.translate(gmu::MODEL, drone.pos[0], drone.pos[1], drone.pos[2]);
+	mu.rotate(gmu::MODEL, drone.dirAngle, 0.0f, 1.0f, 0.0f);  // yaw rotation
+	mu.rotate(gmu::MODEL, drone.pitch, 1.0f, 0.0f, 0.0f);     // pitch rotation
+	mu.rotate(gmu::MODEL, drone.roll, 0.0f, 0.0f, 1.0f);      // roll rotation
 	mu.scale(gmu::MODEL, droneScale, droneScale, droneScale);
+
 	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 	mu.computeNormalMatrix3x3();
 
@@ -381,9 +443,40 @@ void processKeys(unsigned char key, int xx, int yy)
 		case '1': activeCam = 0; break; // top-persp
 		case '2': activeCam = 1; break; // top-ortho
 		case '3': activeCam = 2; break; // follow-drone
+
+		case 't': // throttle up
+			drone.vSpeed += 0.1f;
+			break;
+		case 'g': // throttle down
+			drone.vSpeed -= 0.1f;
+			break;
+		case '+': // increase forward speed
+			drone.speed += 0.1f;
+			break;
+		case '-': // decrease forward speed
+			drone.speed -= 0.1f;
+			//if (drone.speed < 0.0f) drone.speed = 0.0f;
+			break;
+
 	}
 }
 
+void processSpecialKeys(int key, int xx, int yy) {
+	switch (key) {
+	case GLUT_KEY_UP:    // pitch forward
+		drone.pitch += 2.0f;
+		break;
+	case GLUT_KEY_DOWN:  // pitch backward
+		drone.pitch -= 2.0f;
+		break;
+	case GLUT_KEY_LEFT:  // yaw left
+		drone.dirAngle -= 5.0f;
+		break;
+	case GLUT_KEY_RIGHT: // yaw right
+		drone.dirAngle += 5.0f;
+		break;
+	}
+}
 
 // ------------------------------------------------------------
 //
@@ -463,15 +556,20 @@ void processMouseMotion(int xx, int yy)
 
 	if (activeCam == 2) {
 		// follow drone
-		float droneX = 0.0f, droneY = 15.0f, droneZ = 0.0f;
+		float distance = 20.0f; // behind the drone
+		float height = 10.0f; // camera height above drone
+		float targetHeight = 2.0f; // where camera looks relative to drone's center
+		float yawRad = drone.dirAngle * 3.14159f / 180.0f;
 
-		cams[2].target[0] = droneX;
-		cams[2].target[1] = droneY;
-		cams[2].target[2] = droneZ;
+		// Camera position behind and above the drone
+		cams[2].pos[0] = drone.pos[0] - sin(yawRad) * distance;
+		cams[2].pos[1] = drone.pos[1] + height;
+		cams[2].pos[2] = drone.pos[2] - cos(yawRad) * distance;
 
-		cams[2].pos[0] = droneX + camXtemp;
-		cams[2].pos[1] = droneY + camYtemp;
-		cams[2].pos[2] = droneZ + camZtemp;
+		// Camera target slightly above drone base (so it looks forward, not down)
+		cams[2].target[0] = drone.pos[0];
+		cams[2].target[1] = drone.pos[1] + targetHeight;
+		cams[2].target[2] = drone.pos[2];
 	}
 	else {
 		// free orbit cameras (0 or 1)
@@ -640,15 +738,15 @@ void buildScene()
 	cams[1].type = 1;
 
 	// follow drone
-	float droneX = 0.0f, droneY = 15.0f, droneZ = 0.0f;
-	cams[2].target[0] = droneX;
-	cams[2].target[1] = droneY;
-	cams[2].target[2] = droneZ;
+	//float droneX = 0.0f, droneY = 15.0f, droneZ = 0.0f;
+	cams[2].target[0] = drone.pos[0];
+	cams[2].target[1] = drone.pos[1];
+	cams[2].target[2] = drone.pos[2];
 
-	cams[2].pos[0] = droneX;
-	cams[2].pos[1] = droneY + 5.0f;   // slightly above drone
-	cams[2].pos[2] = droneZ + 20.0f;  // behind drone
-	cams[2].type = 0;                 // perspective
+	cams[2].pos[0] = drone.pos[0];
+	cams[2].pos[1] = drone.pos[1] + 5.0f;   // slightly above
+	cams[2].pos[2] = drone.pos[2] + 20.0f;  // behind
+	cams[2].type = 0;                       // perspective
 
 	activeCam = 0; // default camera is top-down perspective
 }
@@ -682,6 +780,7 @@ int main(int argc, char **argv) {
 
 //	Mouse and Keyboard Callbacks
 	glutKeyboardFunc(processKeys);
+	glutSpecialFunc(processSpecialKeys);
 	glutMouseFunc(processMouseButtons);
 	glutMotionFunc(processMouseMotion);
 	glutMouseWheelFunc ( mouseWheel ) ;
