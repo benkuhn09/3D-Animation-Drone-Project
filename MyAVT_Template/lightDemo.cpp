@@ -56,6 +56,9 @@ float camX, camY, camZ;
 float alpha = 57.0f, beta = 18.0f;
 float r = 45.0f;
 
+// ACSII array for key states
+bool keys[256] = { false };
+
 // Mouse Tracking Variables
 int startX, startY, tracking = 0;
 
@@ -119,6 +122,43 @@ void timer(int value)
     glutTimerFunc(1000, timer, 0);
 }
 
+void keyboardDown(unsigned char key, int x, int y) {
+	keys[key] = true;
+
+	switch (key) {
+		case 27:
+			glutLeaveMainLoop();
+			break;
+
+		case '1': activeCam = 0; break;
+		case '2': activeCam = 1; break;
+		case '3': activeCam = 2; break;
+
+		case 'c':
+			printf("Camera Spherical Coordinates (%f, %f, %f)\n", alpha, beta, r);
+			break;
+
+		case 'l':
+			spotlight_mode = !spotlight_mode;
+			printf(spotlight_mode ? "Point light disabled. Spot light enabled\n"
+				: "Spot light disabled. Point light enabled\n");
+			break;
+
+		case 'r':
+			alpha = 57.0f; beta = 18.0f; r = 45.0f;
+			camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
+			camZ = r * cos(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
+			camY = r * sin(beta * 3.14f / 180.0f);
+			break;
+
+		case 'm': glEnable(GL_MULTISAMPLE); break;
+		case 'n': glDisable(GL_MULTISAMPLE); break;
+	}
+}
+void keyboardUp(unsigned char key, int x, int y) {
+	keys[key] = false;
+}
+
 void refresh(int value)
 {
 	//PUT YOUR CODE HERE
@@ -172,7 +212,6 @@ void initCity() {
 		}
 	}
 }
-
 void updateDrone(float deltaTime) {
 	// convert angles to radians
 	float yawRad = drone.dirAngle * 3.14f / 180.0f;
@@ -192,6 +231,30 @@ void updateDrone(float deltaTime) {
 	if (drone.pos[1] < 1.0f) drone.pos[1] = 1.0f;
 }
 
+void animate(float deltaTime) {
+	// turn left/right
+	if (keys['a']) drone.dirAngle -= drone.turnRate * deltaTime;
+	if (keys['d']) drone.dirAngle += drone.turnRate * deltaTime;
+
+	// pitch up/down
+	if (keys['w']) drone.pitch += drone.pitchRate * deltaTime;
+	if (keys['s']) drone.pitch -= drone.pitchRate * deltaTime;
+
+	// throttle
+	if (keys['q']) drone.vSpeed += 0.2f;   // ascend
+	if (keys['e']) drone.vSpeed -= 0.2f;   // descend
+
+	// forward speed control
+	if (keys['+']) drone.speed = min(drone.speed + 0.1f, drone.maxSpeed);
+	if (keys['-']) drone.speed = max(drone.speed - 0.1f, 0.0f);
+
+	// update position (your existing function)
+	updateDrone(deltaTime);
+}
+
+
+
+
 float lastTime = 0.0f;
 
 void renderSim(void) {
@@ -201,7 +264,7 @@ void renderSim(void) {
 	float currentTime = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
 	float deltaTime = currentTime - lastTime;
 	lastTime = currentTime;
-	updateDrone(deltaTime);
+	animate(deltaTime);
 
 	float distance = 20.0f; // how far behind
 	float height = 10.0f;  // how far above
@@ -364,7 +427,7 @@ void renderSim(void) {
 	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 	mu.computeNormalMatrix3x3();
 
-	data.meshID = 2;  // sphere mesh, for now
+	data.meshID = 1;  // sphere mesh, for now
 	data.texMode = 0; //no texturing
 	data.vm = mu.get(gmu::VIEW_MODEL),
 	data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
@@ -410,7 +473,7 @@ void renderSim(void) {
 // Events from the Keyboard
 //
 
-void processKeys(unsigned char key, int xx, int yy)
+/*void processKeys(unsigned char key, int xx, int yy)
 {
 	switch(key) {
 
@@ -463,24 +526,7 @@ void processKeys(unsigned char key, int xx, int yy)
 			break;
 
 	}
-}
-
-void processSpecialKeys(int key, int xx, int yy) {
-	switch (key) {
-	case GLUT_KEY_UP:    // pitch forward
-		drone.pitch += 2.0f;
-		break;
-	case GLUT_KEY_DOWN:  // pitch backward
-		drone.pitch -= 2.0f;
-		break;
-	case GLUT_KEY_LEFT:  // yaw left
-		drone.dirAngle -= 5.0f;
-		break;
-	case GLUT_KEY_RIGHT: // yaw right
-		drone.dirAngle += 5.0f;
-		break;
-	}
-}
+}*/
 
 // ------------------------------------------------------------
 //
@@ -783,8 +829,9 @@ int main(int argc, char **argv) {
 	//glutTimerFunc(0, refresh, 0);    //use it to to get 60 FPS whatever
 
 //	Mouse and Keyboard Callbacks
-	glutKeyboardFunc(processKeys);
-	glutSpecialFunc(processSpecialKeys);
+	//glutKeyboardFunc(processKeys);
+	glutKeyboardFunc(keyboardDown);
+	glutKeyboardUpFunc(keyboardUp);
 	glutMouseFunc(processMouseButtons);
 	glutMotionFunc(processMouseMotion);
 	glutMouseWheelFunc ( mouseWheel ) ;
