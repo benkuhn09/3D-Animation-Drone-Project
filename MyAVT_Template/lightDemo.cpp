@@ -122,42 +122,6 @@ void timer(int value)
     glutTimerFunc(1000, timer, 0);
 }
 
-void keyboardDown(unsigned char key, int x, int y) {
-	keys[key] = true;
-
-	switch (key) {
-		case 27:
-			glutLeaveMainLoop();
-			break;
-
-		case '1': activeCam = 0; break;
-		case '2': activeCam = 1; break;
-		case '3': activeCam = 2; break;
-
-		case 'c':
-			printf("Camera Spherical Coordinates (%f, %f, %f)\n", alpha, beta, r);
-			break;
-
-		case 'l':
-			spotlight_mode = !spotlight_mode;
-			printf(spotlight_mode ? "Point light disabled. Spot light enabled\n"
-				: "Spot light disabled. Point light enabled\n");
-			break;
-
-		case 'r':
-			alpha = 57.0f; beta = 18.0f; r = 45.0f;
-			camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
-			camZ = r * cos(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
-			camY = r * sin(beta * 3.14f / 180.0f);
-			break;
-
-		case 'm': glEnable(GL_MULTISAMPLE); break;
-		case 'n': glDisable(GL_MULTISAMPLE); break;
-	}
-}
-void keyboardUp(unsigned char key, int x, int y) {
-	keys[key] = false;
-}
 
 void refresh(int value)
 {
@@ -246,7 +210,7 @@ void animate(float deltaTime) {
 
 	// forward speed control
 	if (keys['+']) drone.speed = min(drone.speed + 0.1f, drone.maxSpeed);
-	if (keys['-']) drone.speed = max(drone.speed - 0.1f, 0.0f);
+	if (keys['-']) drone.speed = drone.speed - 0.1f;
 
 	// update position (your existing function)
 	updateDrone(deltaTime);
@@ -406,15 +370,6 @@ void renderSim(void) {
 	}
 
 	// drone rendering
-	/*float droneX = 0.0f;
-	float droneY = 15.0f;
-	float droneZ = 0.0f;
-	float droneScale = 1.0f;
-
-	mu.pushMatrix(gmu::MODEL);
-	mu.translate(gmu::MODEL, droneX, droneY, droneZ);
-	mu.scale(gmu::MODEL, droneScale, droneScale, droneScale);*/
-
 	float droneScale = 1.0f;
 
 	mu.pushMatrix(gmu::MODEL);
@@ -427,7 +382,7 @@ void renderSim(void) {
 	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 	mu.computeNormalMatrix3x3();
 
-	data.meshID = 1;  // sphere mesh, for now
+	data.meshID = 1;  // cube mesh, for now
 	data.texMode = 0; //no texturing
 	data.vm = mu.get(gmu::VIEW_MODEL),
 	data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
@@ -472,61 +427,43 @@ void renderSim(void) {
 //
 // Events from the Keyboard
 //
+void keyboardDown(unsigned char key, int x, int y) {
+	keys[key] = true;
 
-/*void processKeys(unsigned char key, int xx, int yy)
-{
-	switch(key) {
+	switch (key) {
+	case 27:
+		glutLeaveMainLoop();
+		break;
 
-		case 27:
-			glutLeaveMainLoop();
-			break;
+	case '1': activeCam = 0; break;
+	case '2': activeCam = 1; break;
+	case '3': activeCam = 2; break;
 
-		case 'c': 
-			printf("Camera Spherical Coordinates (%f, %f, %f)\n", alpha, beta, r);
-			break;
+	case 'c':
+		printf("Camera Spherical Coordinates (%f, %f, %f)\n", alpha, beta, r);
+		break;
 
-		case 'l':   //toggle spotlight mode
-			if (!spotlight_mode) {
-				spotlight_mode = true;
-				printf("Point light disabled. Spot light enabled\n");
-			}
-			else {
-				spotlight_mode = false;
-				printf("Spot light disabled. Point light enabled\n");
-			}
-			break;
+	case 'l':
+		spotlight_mode = !spotlight_mode;
+		printf(spotlight_mode ? "Point light disabled. Spot light enabled\n"
+			: "Spot light disabled. Point light enabled\n");
+		break;
 
-		case 'r':    //reset
-			alpha = 57.0f; beta = 18.0f;  // Camera Spherical Coordinates
-			r = 45.0f;
-			camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
-			camZ = r * cos(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
-			camY = r * sin(beta * 3.14f / 180.0f);
-			break;
+	case 'r':
+		alpha = 57.0f; beta = 18.0f; r = 45.0f;
+		camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
+		camZ = r * cos(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
+		camY = r * sin(beta * 3.14f / 180.0f);
+		break;
 
-		case 'm': glEnable(GL_MULTISAMPLE); break;
-		case 'n': glDisable(GL_MULTISAMPLE); break;
-
-		case '1': activeCam = 0; break; // top-persp
-		case '2': activeCam = 1; break; // top-ortho
-		case '3': activeCam = 2; break; // follow-drone
-
-		case 't': // throttle up
-			drone.vSpeed += 0.1f;
-			break;
-		case 'g': // throttle down
-			drone.vSpeed -= 0.1f;
-			break;
-		case '+': // increase forward speed
-			drone.speed += 0.1f;
-			break;
-		case '-': // decrease forward speed
-			drone.speed -= 0.1f;
-			//if (drone.speed < 0.0f) drone.speed = 0.0f;
-			break;
-
+	case 'm': glEnable(GL_MULTISAMPLE); break;
+	case 'n': glDisable(GL_MULTISAMPLE); break;
 	}
-}*/
+}
+void keyboardUp(unsigned char key, int x, int y) {
+	keys[key] = false;
+}
+
 
 // ------------------------------------------------------------
 //
@@ -829,7 +766,6 @@ int main(int argc, char **argv) {
 	//glutTimerFunc(0, refresh, 0);    //use it to to get 60 FPS whatever
 
 //	Mouse and Keyboard Callbacks
-	//glutKeyboardFunc(processKeys);
 	glutKeyboardFunc(keyboardDown);
 	glutKeyboardUpFunc(keyboardUp);
 	glutMouseFunc(processMouseButtons);
