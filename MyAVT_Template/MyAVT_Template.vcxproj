@@ -182,6 +182,11 @@
     <ClInclude Include="stb_truetype.h" />
     <ClInclude Include="texture.h" />
   </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\..\..\concrete.jpg" />
+    <Image Include="assets\cobblestone.png" />
+    <Image Include="assets\concrete.jpg" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

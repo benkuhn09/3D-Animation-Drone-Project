@@ -353,6 +353,8 @@ void renderSim(void) {
 	renderer.setTexUnit(0, 0);
 	renderer.setTexUnit(1, 1);
 	renderer.setTexUnit(2, 2);
+	renderer.setTexUnit(3, 3);
+	renderer.setTexUnit(4, 4);
 
 	// load identity matrices
 	mu.loadIdentity(gmu::VIEW);
@@ -403,7 +405,7 @@ void renderSim(void) {
 	mu.computeNormalMatrix3x3();
 
 	data.meshID = 0;
-	data.texMode = 1; //modulate diffuse color with texel color
+	data.texMode = 3; //modulate diffuse color with texel color
 	data.vm = mu.get(gmu::VIEW_MODEL),
 	data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 	data.normal = mu.getNormalMatrix();
@@ -712,6 +714,8 @@ void buildScene()
 	renderer.TexObjArray.texture2D_Loader("assets/stone.tga");
 	renderer.TexObjArray.texture2D_Loader("assets/checker.png");
 	renderer.TexObjArray.texture2D_Loader("assets/lightwood.tga");
+	renderer.TexObjArray.texture2D_Loader("assets/concrete.jpg");
+	renderer.TexObjArray.texture2D_Loader("assets/cobblestone.png");
 
 	//Scene geometry with triangle meshes
 
