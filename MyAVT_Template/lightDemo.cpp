@@ -17,6 +17,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <algorithm>
 
 // include GLEW to access OpenGL 3.3 functions
 #include <GL/glew.h>
@@ -97,6 +98,7 @@ struct Drone {
 	float maxVSpeed = 8.0f;
 	float turnRate = 90.0f;      // degrees/sec when turning (you can override per-key)
 	float pitchRate = 30.0f;     // degrees/sec when pitching
+	float size = 1.0f; // for bounding, in world units
 };
 
 Drone drone;
@@ -108,6 +110,10 @@ struct Building {
 
 const int GRID_SIZE = 6;
 Building city[GRID_SIZE][GRID_SIZE];
+
+float buildingOffset[GRID_SIZE][GRID_SIZE][3];
+
+
 
 /// ::::::::::::::::::::::::::::::::::::::::::::::::CALLBACK FUNCIONS:::::::::::::::::::::::::::::::::::::::::::::::::://///
 
@@ -173,10 +179,61 @@ void initCity() {
 			float t = rand() / (float)RAND_MAX;  // random float 0–1
 			city[i][j].height = minHeight + t * (maxHeight - minHeight);
 			city[i][j].meshID = (rand() % 2 == 0) ? 1 : 3;  // cube or cylinder
+			/* initializing offsets for building. used for collision. */
+			buildingOffset[i][j][0] = 0.0f;
+			buildingOffset[i][j][1] = 0.0f;
+			buildingOffset[i][j][2] = 0.0f;
 		}
 	}
 }
+
+bool aabbIntersect(const float minA[3], const float maxA[3], const float minB[3], const float maxB[3]) {
+	if (maxA[0] < minB[0] || minA[0] > maxB[0]) return false;
+	if (maxA[1] < minB[1] || minA[1] > maxB[1]) return false;
+	if (maxA[2] < minB[2] || minA[2] > maxB[2]) return false;
+	return true;
+}
+
+void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
+	const float spacing = 7.2f;
+	const float floorSize = 45.0f;
+	const float halfScaleX = 2.3f * 0.5f; // half-size in X and Z
+	const float halfScaleZ = 2.3f * 0.5f;
+	float xOffset = -floorSize / 2.0f + spacing / 2.0f;
+	float zOffset = -floorSize / 2.0f + spacing / 2.0f;
+
+	float cx = xOffset + i * spacing + buildingOffset[i][j][0]; // building center x
+	float cz = zOffset + j * spacing + buildingOffset[i][j][2]; // center z
+	float h = city[i][j].height;
+	float cy = h * 0.5f + buildingOffset[i][j][1]; // assume base at y=0, center at height/2
+
+	outMin[0] = cx - halfScaleX;
+	outMax[0] = cx + halfScaleX;
+	outMin[1] = 0.0f + buildingOffset[i][j][1];   // base sits on ground unless y offset applied
+	outMax[1] = h + buildingOffset[i][j][1];
+	outMin[2] = cz - halfScaleZ;
+	outMax[2] = cz + halfScaleZ;
+}
+
+bool findCollidingBuilding(const float dMin[3], const float dMax[3], int& outI, int& outJ) {
+	for (int i = 0; i < GRID_SIZE; ++i) {
+		for (int j = 0; j < GRID_SIZE; ++j) {
+			float bMin[3], bMax[3];
+			computeBuildingAABB(i, j, bMin, bMax);
+			if (aabbIntersect(dMin, dMax, bMin, bMax)) {
+				outI = i;
+				outJ = j;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 void updateDrone(float deltaTime) {
+
+	float prevPos[3] = {drone.pos[0], drone.pos[1], drone.pos[2]};
+
 	// convert angles to radians
 	float yawRad = drone.dirAngle * 3.14f / 180.0f;
 	float pitchRad = drone.pitch * 3.14f / 180.0f;
@@ -193,6 +250,51 @@ void updateDrone(float deltaTime) {
 
 	// prevent drone from going below the floor
 	if (drone.pos[1] < 1.0f) drone.pos[1] = 1.0f;
+
+	/* drone collision handling */
+	// drone AABB
+	float half = drone.size * 0.5f;
+	float dMin[3] = { drone.pos[0] - half, drone.pos[1] - half, drone.pos[2] - half };
+	float dMax[3] = { drone.pos[0] + half, drone.pos[1] + half, drone.pos[2] + half };
+
+	// check collisions
+	int hitI = -1, hitJ = -1;
+	if (findCollidingBuilding(dMin, dMax, hitI, hitJ)) {
+		// revert drone to previous position and stop it
+		drone.pos[0] = prevPos[0];
+		drone.pos[1] = prevPos[1];
+		drone.pos[2] = prevPos[2];
+		drone.speed = 0.0f;
+		drone.vSpeed = 0.0f;
+
+		// nudge the building a little away from the drone (in XZ plane)
+		const float spacing = 7.2f;
+		const float floorSize = 45.0f;
+		float xOffset = -floorSize / 2.0f + spacing / 2.0f;
+		float zOffset = -floorSize / 2.0f + spacing / 2.0f;
+
+		float bx = xOffset + hitI * spacing + buildingOffset[hitI][hitJ][0];
+		float bz = zOffset + hitJ * spacing + buildingOffset[hitI][hitJ][2];
+
+		float dirx = (prevPos[0] - bx);
+		float dirz = (prevPos[2] - bz);
+		float len = sqrtf(dirx * dirx + dirz * dirz);
+		if (len < 1e-4f) {
+			// if practically same position, push in arbitrary direction
+			dirx = 1.0f; dirz = 0.0f; len = 1.0f;
+		}
+		dirx /= len; dirz /= len;
+
+		const float pushAmount = 0.15f; // tweak to make buildings move "very slightly"
+		buildingOffset[hitI][hitJ][0] += dirx * pushAmount;
+		buildingOffset[hitI][hitJ][2] += dirz * pushAmount;
+
+		// clamp offsets so buildings don't fly off
+		const float maxOffset = 1.0f;
+		buildingOffset[hitI][hitJ][0] = std::max(-maxOffset, std::min(maxOffset, buildingOffset[hitI][hitJ][0]));
+		buildingOffset[hitI][hitJ][2] = std::max(-maxOffset, std::min(maxOffset, buildingOffset[hitI][hitJ][2]));
+	}
+
 }
 
 void animate(float deltaTime) {
@@ -322,10 +424,16 @@ void renderSim(void) {
 			//mu.translate(gmu::MODEL, (float)i * 5.0f, 0.0f, (float)j * 5.0f);
 			// move grid so that (0,0) starts at top-left of floor
 
-			mu.translate(gmu::MODEL,
+			/*mu.translate(gmu::MODEL,
 				xOffset + (float)i * spacing,
 				0.0f,
-				zOffset + (float)j * spacing);
+				zOffset + (float)j * spacing);*/
+
+			mu.translate(gmu::MODEL,
+				xOffset + (float)i * spacing + buildingOffset[i][j][0],
+				0.0f + buildingOffset[i][j][1],
+				zOffset + (float)j * spacing + buildingOffset[i][j][2]);
+
 			
 			//retrives height from cityInit
 			float height = city[i][j].height;
