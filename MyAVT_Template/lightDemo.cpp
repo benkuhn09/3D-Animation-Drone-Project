@@ -276,8 +276,8 @@ void updateDrone(float deltaTime) {
 		float bx = xOffset + hitI * spacing + buildingOffset[hitI][hitJ][0];
 		float bz = zOffset + hitJ * spacing + buildingOffset[hitI][hitJ][2];
 
-		float dirx = (prevPos[0] - bx);
-		float dirz = (prevPos[2] - bz);
+		float dirx = (bx - prevPos[0]);
+		float dirz = (bz - prevPos[2]);
 		float len = sqrtf(dirx * dirx + dirz * dirz);
 		if (len < 1e-4f) {
 			// if practically same position, push in arbitrary direction
