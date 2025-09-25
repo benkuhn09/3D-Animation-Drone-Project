@@ -113,7 +113,48 @@ Building city[GRID_SIZE][GRID_SIZE];
 
 float buildingOffset[GRID_SIZE][GRID_SIZE][3];
 
+struct FlyingObject {
+	float pos[3];   // world position
+	float dir[3];   // unit direction
+	float speed;    // units/sec
+	int   meshID;   // which mesh to render
 
+	float rotAngle;   // degrees
+	float rotSpeed;   // degrees/sec
+	int   rotAxis;
+
+	float size;
+};
+
+std::vector<FlyingObject> flyingObjects;
+
+const int   NUM_FLYING_OBJECTS = 15;
+const float SPAWN_RADIUS = 30.0f;  // birth ring radius (XZ)
+const float KILL_RADIUS = 45.0f;  // die when too far from center
+const float MIN_Y = 0.0f;
+const float MAX_Y = 20.0f;
+
+const float MAX_XZ = 20.0f;
+const float MIN_XZ = -20.0f;
+
+
+const float BASE_SPEED = 20.0f;   // initial median speed
+
+// Difficulty ramp (~every 30 s)
+float speedFactor = 1.0f;
+float nextSpeedBump = 5.0f;  // seconds
+
+// for later
+int meshFlyingObject = -1;
+
+
+static inline float frand(float a, float b) {
+	return a + (b - a) * (rand() / (float)RAND_MAX);
+}
+static inline void normalize3(float v[3]) {
+	float L = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+	if (L > 0.0f) { v[0] /= L; v[1] /= L; v[2] /= L; }
+}
 
 /// ::::::::::::::::::::::::::::::::::::::::::::::::CALLBACK FUNCIONS:::::::::::::::::::::::::::::::::::::::::::::::::://///
 
@@ -129,10 +170,70 @@ void timer(int value)
 }
 
 
+void spawnFlyingObject(FlyingObject& o) {
+	// spawn on an XZ circle at SPAWN_RADIUS, at random height
+	const float ang = frand(0.0f, 6.2831853f);
+	o.pos[0] = SPAWN_RADIUS * cosf(ang);
+	o.pos[2] = SPAWN_RADIUS * sinf(ang);
+	o.pos[1] = frand(5, MAX_Y);
+
+	// aim roughly across the city (toward center with random height)
+	float target[3] = { frand(MIN_XZ, MAX_XZ), frand(MIN_Y, MAX_Y),frand(MIN_XZ, MAX_XZ) };
+	o.dir[0] = target[0] - o.pos[0];
+	o.dir[1] = target[1] - o.pos[1];
+	o.dir[2] = target[2] - o.pos[2];
+	normalize3(o.dir);
+
+
+	o.rotAxis = (int)frand(0.0f, 3.0f);          // 0,1,or 2
+	o.rotSpeed = frand(45.0f, 180.0f);            // 45–180 deg/s
+	o.rotAngle = frand(0.0f, 360.0f);
+	// vary the speed
+	o.speed = BASE_SPEED * frand(0.5f, 1.5f);
+
+
+	o.size = frand(0.5, 4);
+	// for later
+	o.meshID = (meshFlyingObject >= 0 ? meshFlyingObject : 0);
+}
+
+void initFlyingObjects() {
+	flyingObjects.resize(NUM_FLYING_OBJECTS);
+	for (auto& o : flyingObjects) spawnFlyingObject(o);
+}
+
+void updateFlyingObjects(float dt, float elapsedSeconds) {
+	// difficulty bump every ~30 s
+	if (elapsedSeconds >= nextSpeedBump) {
+		speedFactor *= 1.15f;
+		nextSpeedBump += 30.0f;
+	}
+
+	for (auto& o : flyingObjects) {
+		o.pos[0] += o.dir[0] * o.speed * speedFactor * dt;
+		o.pos[1] += o.dir[1] * o.speed * speedFactor * dt;
+		o.pos[2] += o.dir[2] * o.speed * speedFactor * dt;
+
+		o.rotAngle += o.rotSpeed * dt;
+		// die & respawn when too far from center
+		float r2 = o.pos[0] * o.pos[0] + o.pos[1] * o.pos[1] + o.pos[2] * o.pos[2];
+		if (r2 > (KILL_RADIUS * KILL_RADIUS)) spawnFlyingObject(o);
+	}
+}
+
 void refresh(int value)
 {
-	//PUT YOUR CODE HERE
+	static float last = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+	float now = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+	float dt = now - last;
+	last = now;
+
+	updateFlyingObjects(dt, now);
+
+	glutPostRedisplay();
+	glutTimerFunc(16, refresh, 0);
 }
+
 
 // ------------------------------------------------------------
 //
@@ -501,6 +602,29 @@ void renderSim(void) {
 	mu.popMatrix(gmu::MODEL);
 
 
+	for (const auto& o : flyingObjects) {
+		
+
+		mu.pushMatrix(gmu::MODEL);
+		mu.translate(gmu::MODEL, o.pos[0], o.pos[1], o.pos[2]);
+		if (o.rotAxis == 0) mu.rotate(gmu::MODEL, o.rotAngle, 1.0f, 0.0f, 0.0f);
+		else if (o.rotAxis == 1) mu.rotate(gmu::MODEL, o.rotAngle, 0.0f, 1.0f, 0.0f);
+		else mu.rotate(gmu::MODEL, o.rotAngle, 0.0f, 0.0f, 1.0f);
+
+		mu.scale(gmu::MODEL, o.size, o.size, o.size);
+
+		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+		mu.computeNormalMatrix3x3();
+
+		data.meshID = o.meshID;
+		data.texMode = 0;
+		data.vm = mu.get(gmu::VIEW_MODEL);
+		data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+		data.normal = mu.getNormalMatrix();
+		renderer.renderMesh(data);
+		mu.popMatrix(gmu::MODEL);
+
+	}
 	//Render text (bitmap fonts) in screen coordinates. So use ortoghonal projection with viewport coordinates.
 	//Each glyph quad texture needs just one byte color channel: 0 in background and 1 for the actual character pixels. Use it for alpha blending
 	//text to be rendered in last place to be in front of everything
@@ -848,6 +972,27 @@ void buildScene()
 	cams[2].type = 0;                       // perspective
 
 	activeCam = 0; // default camera is top-down perspective
+
+	srand((unsigned)time(NULL));
+
+	// Dedicated small sphere for flying objects (bright so it’s visible)
+	{
+		MyMesh mob = createCube();
+		float amb[] = { 0.1f, 0.1f, 0.1f, 1.0f };
+		float diff[] = { 0.8f, 0.8f, 0.2f, 1.0f };
+		float spec[] = { 0.9f, 0.9f, 0.9f, 1.0f };
+		float emis[] = { 0.05f, 0.05f, 0.05f, 1.0f };
+		mob.mat.shininess = 80.0f; mob.mat.texCount = 0;
+		memcpy(mob.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(mob.mat.diffuse, diff, 4 * sizeof(float));
+		memcpy(mob.mat.specular, spec, 4 * sizeof(float));
+		memcpy(mob.mat.emissive, emis, 4 * sizeof(float));
+		renderer.myMeshes.push_back(mob);
+		meshFlyingObject = (int)renderer.myMeshes.size() - 1;
+	}
+
+	// Create the initial list
+	initFlyingObjects();
 }
 
 // ------------------------------------------------------------
@@ -875,7 +1020,7 @@ int main(int argc, char **argv) {
 
 	glutTimerFunc(0, timer, 0);
 	glutIdleFunc(renderSim);  // Use it for maximum performance
-	//glutTimerFunc(0, refresh, 0);    //use it to to get 60 FPS whatever
+	glutTimerFunc(0, refresh, 0);    //use it to to get 60 FPS whatever
 
 //	Mouse and Keyboard Callbacks
 	glutKeyboardFunc(keyboardDown);
