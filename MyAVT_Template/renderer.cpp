@@ -198,6 +198,7 @@ void Renderer::activateRenderMeshesShaderProg() {   //GLSL program to draw the m
     glUseProgram(program);
 }
 
+
 void Renderer::setSpotParam(float* coneDir, const float cutOff) {
     GLint loc;
     loc = glGetUniformLocation(program, "coneDir");
@@ -223,6 +224,18 @@ void Renderer::setTexUnit(int tuId, int texObjId) {
     glActiveTexture(GL_TEXTURE0 + tuId);
     glBindTexture(GL_TEXTURE_2D, TexObjArray.getTextureId(texObjId));
     glUniform1i(tex_loc[tuId], tuId);
+}
+
+void Renderer::setFogParams(int depthFog, const float fogColor[3], float fogDensity) {
+    glUseProgram(program);
+
+    GLint locDepth = glGetUniformLocation(program, "depthFog");
+    GLint locColor = glGetUniformLocation(program, "fogColor");
+    GLint locDensity = glGetUniformLocation(program, "fogDensity");
+
+    if (locDepth != -1) glUniform1i(locDepth, depthFog);
+    if (locColor != -1) glUniform3fv(locColor, 1, fogColor);
+    if (locDensity != -1) glUniform1f(locDensity, fogDensity);
 }
 
 void Renderer::renderMesh(const dataMesh& data) {

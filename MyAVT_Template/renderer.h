@@ -60,6 +60,8 @@ public:
 
   void setTexUnit(int tuId, int texObjId);
 
+  void setFogParams(int depthFog, const float fogColor[3], float fogDensity);
+
 
 
   //Vector with meshes

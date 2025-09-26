@@ -448,6 +448,11 @@ void renderSim(void) {
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	renderer.activateRenderMeshesShaderProg(); // use the required GLSL program to draw the meshes with illumination
+	int depthFog = 1; // 0 = z-based, 1 = radial
+	float fogColor[3] = { 0.5f, 0.5f, 0.6f }; // light gray-blue
+	float fogDensity = 0.04f;
+
+	renderer.setFogParams(depthFog, fogColor, fogDensity);
 
 	//Associar os Texture Units aos Objects Texture
 	//stone.tga loaded in TU0; checker.tga loaded in TU1;  lightwood.tga loaded in TU2

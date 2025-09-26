@@ -16,6 +16,7 @@ out Data {
 	vec3 eye;
 	vec3 lightDir;
 	vec2 tex_coord;
+	vec4 posEye;
 } DataOut;
 
 void main () {
@@ -26,6 +27,7 @@ void main () {
 	DataOut.lightDir = vec3(l_pos - pos);
 	DataOut.eye = vec3(-pos);
 	DataOut.tex_coord = texCoord.st;
+	DataOut.posEye = pos;
 
 	gl_Position = m_pvm * position;	
 }

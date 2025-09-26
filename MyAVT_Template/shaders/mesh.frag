@@ -14,6 +14,7 @@ in Data {
 	vec3 eye;
 	vec3 lightDir;
 	vec2 tex_coord;
+	vec4 posEye;
 } DataIn;
 
 uniform Materials mat;
@@ -28,6 +29,10 @@ uniform int texMode;
 uniform bool spotlight_mode;
 uniform vec4 coneDir;
 uniform float spotCosCutOff;
+
+uniform int depthFog;
+uniform vec3 fogColor;
+uniform float fogDensity;
 
 out vec4 colorOut;
 
@@ -67,23 +72,39 @@ void main() {
 		}
 	}
 
+	vec4 baseColor;
+
 	if(texMode == 0) //no texturing
-		colorOut = vec4(max(intensity * mat.diffuse + spec, mat.ambient).rgb, 1.0);
+		baseColor = vec4(max(intensity * mat.diffuse + spec, mat.ambient).rgb, 1.0);
 
 	else if(texMode == 1) // modulate diffuse color with texel color
 	{
 		texel = texture(texmap2, DataIn.tex_coord);  // texel from lighwood.tga
-		colorOut = vec4(max(intensity * mat.diffuse * texel + spec,0.07 * texel).rgb, 1.0);
+		baseColor = vec4(max(intensity * mat.diffuse * texel + spec,0.07 * texel).rgb, 1.0);
 	}
 	else if (texMode == 2) // diffuse color is replaced by texel color
 	{
 		texel = texture(texmap2, DataIn.tex_coord);  // texel from stone.tga
-		colorOut = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
+		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
 	}
 	else // multitexturing
 	{
 		texel = texture(texmap3, DataIn.tex_coord);  // texel from lighwood.tga
 		texel1 = texture(texmap4, DataIn.tex_coord);  // texel from checker.tga
-		colorOut = vec4(max(intensity*texel*texel1 + spec, 0.07*texel*texel1).rgb, 1.0);
+		baseColor = vec4(max(intensity*texel*texel1 + spec, 0.07*texel*texel1).rgb, 1.0);
 	}
+
+	float dist;
+	if (depthFog == 0){
+		dist = abs(DataIn.posEye.z);
+	}
+	else{
+		dist = length(DataIn.posEye);
+	}
+
+	float fogAmount = exp(-dist*fogDensity);
+	fogAmount = clamp(fogAmount, 0.0, 1.0);
+	vec3 finalColor = mix(fogColor, baseColor.rgb, fogAmount);
+	colorOut = vec4(finalColor, 1.0);
+
 }
