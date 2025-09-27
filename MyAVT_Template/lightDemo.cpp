@@ -76,6 +76,9 @@ float coneDir[4] = { 0.0f, -0.0f, -1.0f, 0.0f };
 
 bool fontLoaded = false;
 
+// fog flag
+bool fogEnabled = true;
+
 float aspectRatio = 1.0f;
 struct Camera {
 	float pos[3] = { 0.0f, 0.0f, 0.0f };
@@ -316,6 +319,16 @@ void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
 	outMax[2] = cz + halfScaleZ;
 }
 
+void computeFlyingObjectAABB(const FlyingObject& o, float outMin[3], float outMax[3]) {
+	float half = o.size * 0.5f;
+	outMin[0] = o.pos[0] - half;
+	outMax[0] = o.pos[0] + half;
+	outMin[1] = o.pos[1] - half;
+	outMax[1] = o.pos[1] + half;
+	outMin[2] = o.pos[2] - half;
+	outMax[2] = o.pos[2] + half;
+}
+
 bool findCollidingBuilding(const float dMin[3], const float dMax[3], int& outI, int& outJ) {
 	for (int i = 0; i < GRID_SIZE; ++i) {
 		for (int j = 0; j < GRID_SIZE; ++j) {
@@ -329,6 +342,17 @@ bool findCollidingBuilding(const float dMin[3], const float dMax[3], int& outI, 
 		}
 	}
 	return false;
+}
+
+void resetDrone() {
+	drone.pos[0] = 0.0f;
+	drone.pos[1] = 15.0f;
+	drone.pos[2] = 0.0f;
+	drone.dirAngle = 0.0f;
+	drone.pitch = 0.0f;
+	drone.roll = 0.0f;
+	drone.speed = 0.0f;
+	drone.vSpeed = 0.0f;
 }
 
 void updateDrone(float deltaTime) {
@@ -395,6 +419,14 @@ void updateDrone(float deltaTime) {
 		buildingOffset[hitI][hitJ][0] = std::max(-maxOffset, std::min(maxOffset, buildingOffset[hitI][hitJ][0]));
 		buildingOffset[hitI][hitJ][2] = std::max(-maxOffset, std::min(maxOffset, buildingOffset[hitI][hitJ][2]));
 	}
+	for (auto& o : flyingObjects) {
+		float oMin[3], oMax[3];
+		computeFlyingObjectAABB(o, oMin, oMax);
+		if (aabbIntersect(dMin, dMax, oMin, oMax)) {
+			resetDrone();
+			break; // stop after first collision
+		}
+	}
 
 }
 
@@ -452,7 +484,18 @@ void renderSim(void) {
 	float fogColor[3] = { 0.5f, 0.5f, 0.6f }; // light gray-blue
 	float fogDensity = 0.04f;
 
-	renderer.setFogParams(depthFog, fogColor, fogDensity);
+	if (fogEnabled) {
+		int depthFog = 1; // 0 = z-based, 1 = radial
+		float fogColor[3] = { 0.5f, 0.5f, 0.6f }; // light gray-blue
+		float fogDensity = 0.04f;
+		renderer.setFogParams(depthFog, fogColor, fogDensity);
+	}
+	else {
+		int depthFog = 1; // 0 = z-based, 1 = radial
+		float fogColor[3] = { 0.0f, 0.0f, 0.0f }; // light gray-blue
+		float fogDensity = 0.0f;
+		renderer.setFogParams(depthFog, fogColor, fogDensity);
+	}
 
 	//Associar os Texture Units aos Objects Texture
 	//stone.tga loaded in TU0; checker.tga loaded in TU1;  lightwood.tga loaded in TU2
@@ -697,6 +740,7 @@ void keyboardDown(unsigned char key, int x, int y) {
 
 	case 'm': glEnable(GL_MULTISAMPLE); break;
 	case 'n': glDisable(GL_MULTISAMPLE); break;
+	case 'f': fogEnabled = !fogEnabled; break;
 	}
 }
 void keyboardUp(unsigned char key, int x, int y) {
