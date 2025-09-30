@@ -10,6 +10,10 @@
 #include "model.h"
 #include "stb_truetype.h"
 
+/* Lighting Constants */
+constexpr int NUMBER_POINT_LIGHTS = 6;
+constexpr int NUMBER_SPOT_LIGHTS = 2;
+
 struct dataMesh {
   int meshID = 0;  //mesh ID in the myMeshes array
   float *pvm, *vm, *normal;  //matrices pointers
@@ -62,7 +66,17 @@ public:
 
   void setFogParams(int depthFog, const float fogColor[3], float fogDensity);
 
+  void setDirectionalLight(float* direction, float r, float g, float b, bool on);
 
+  void setPointLights(const float lightPos[NUMBER_POINT_LIGHTS][4],
+      const float lightColor[NUMBER_POINT_LIGHTS][3],
+      bool lightsOn);
+  
+  void setSpotLights(const float spotPosEye[][4],
+      const float spotDirEye[][4],
+      const float spotColor[][3],
+      bool spotOn,
+      float spotCutOff);
 
   //Vector with meshes
   std::vector<struct MyMesh> myMeshes;

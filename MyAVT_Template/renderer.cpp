@@ -242,6 +242,62 @@ void Renderer::setFogParams(int depthFog, const float fogColor[3], float fogDens
     if (locDensity != -1) glUniform1f(locDensity, fogDensity);
 }
 
+void Renderer::setDirectionalLight(float* direction, float r, float g, float b, bool on) {
+    GLint loc = glGetUniformLocation(program, "directionalLight.direction");
+    glUniform3fv(loc, 1, direction);
+
+    loc = glGetUniformLocation(program, "directionalLight.color");
+    glUniform3f(loc, r, g, b);
+
+    loc = glGetUniformLocation(program, "directionalLight.on");
+    glUniform1i(loc, on ? 1 : 0);
+}
+
+void Renderer::setPointLights(const float lightEye[NUMBER_POINT_LIGHTS][4],
+    const float lightColor[NUMBER_POINT_LIGHTS][3],
+    bool lightsOn) {
+    for (int i = 0; i < NUMBER_POINT_LIGHTS; i++) {
+        std::string posName = "pointLights[" + std::to_string(i) + "].position";
+        GLint locPos = glGetUniformLocation(program, posName.c_str());
+        glUniform3f(locPos, lightEye[i][0], lightEye[i][1], lightEye[i][2]);
+
+        std::string colorName = "pointLights[" + std::to_string(i) + "].color";
+        GLint locColor = glGetUniformLocation(program, colorName.c_str());
+        glUniform3f(locColor, lightColor[i][0], lightColor[i][1], lightColor[i][2]);
+
+        std::string onName = "pointLights[" + std::to_string(i) + "].on";
+        GLint locOn = glGetUniformLocation(program, onName.c_str());
+        glUniform1i(locOn, lightsOn ? 1 : 0);
+    }
+}
+
+void Renderer::setSpotLights(const float spotPosEye[][4],
+    const float spotDirEye[][4],
+    const float spotColor[][3],
+    bool spotOn,
+    float spotCutOff) {
+    glUseProgram(program);
+
+    GLint locCut = glGetUniformLocation(program, "spotCosCutOff");
+    if (locCut != -1) glUniform1f(locCut, spotCutOff);
+
+    for (int i = 0; i < NUMBER_SPOT_LIGHTS; ++i) {
+        std::string base = "spotLights[" + std::to_string(i) + "]";
+
+        GLint locPos = glGetUniformLocation(program, (base + ".position").c_str());
+        if (locPos != -1) glUniform3f(locPos, spotPosEye[i][0], spotPosEye[i][1], spotPosEye[i][2]);
+
+        GLint locDir = glGetUniformLocation(program, (base + ".direction").c_str());
+        if (locDir != -1) glUniform3f(locDir, spotDirEye[i][0], spotDirEye[i][1], spotDirEye[i][2]);
+
+        GLint locColor = glGetUniformLocation(program, (base + ".color").c_str());
+        if (locColor != -1) glUniform3f(locColor, spotColor[i][0], spotColor[i][1], spotColor[i][2]);
+
+        GLint locOn = glGetUniformLocation(program, (base + ".on").c_str());
+        if (locOn != -1) glUniform1i(locOn, spotOn ? 1 : 0);
+    }
+}
+
 void Renderer::renderMesh(const dataMesh& data) {
     GLint loc;
 

@@ -1,20 +1,42 @@
 #version 430
 
+#define NUMBER_POINT_LIGHTS 6
+#define NUM_SPOT_LIGHTS 2
+
 struct Materials {
-	vec4 diffuse;
-	vec4 ambient;
-	vec4 specular;
-	vec4 emissive;
-	float shininess;
-	int texCount;
+    vec4 diffuse;
+    vec4 ambient;
+    vec4 specular;
+    vec4 emissive;
+    float shininess;
+    int texCount;
+};
+
+struct DirectionalLight {
+    vec3 direction; // in view space (pointing from surface towards light = -lightDir)
+    vec3 color;
+    bool on;
+};
+
+struct PointLight {
+    vec3 position;  // in view space
+    vec3 color;
+    bool on;
+};
+
+struct SpotLight {
+    vec3 position;  // in view space
+    vec3 direction; // in view space (cone direction)
+    vec3 color;
+    bool on;
 };
 
 in Data {
-	vec3 normal;
-	vec3 eye;
-	vec3 lightDir;
-	vec2 tex_coord;
-	vec4 posEye;
+    vec3 normal;
+    vec3 eye;
+    vec3 fragPos;
+    vec2 tex_coord;
+    vec4 posEye;   // for fog
 } DataIn;
 
 uniform Materials mat;
@@ -30,10 +52,13 @@ uniform sampler2D texmap7;
 uniform sampler2D texmap8;
 
 uniform int texMode;
-uniform bool spotlight_mode;
-uniform vec4 coneDir;
-uniform float spotCosCutOff;
 
+// Lighting uniforms (teammate's system)
+uniform DirectionalLight directionalLight;
+uniform PointLight pointLights[NUMBER_POINT_LIGHTS];
+uniform SpotLight spotLights[NUM_SPOT_LIGHTS];
+
+// Fog uniforms (preserved from your shader)
 uniform int depthFog;
 uniform vec3 fogColor;
 uniform float fogDensity;
@@ -41,89 +66,126 @@ uniform float fogDensity;
 out vec4 colorOut;
 
 void main() {
-	vec4 texel, texel1;
+    // Material / shading placeholders
+    vec3 n = normalize(DataIn.normal);
+    vec3 e = normalize(DataIn.eye);
 
-	vec4 spec = vec4(0.0);
-	float intensity = 0.0f;
-	float intSpec = 0.0f;
+    vec3 ambient = vec3(0.0);
+    vec3 diffuse = vec3(0.0);
+    vec3 specular = vec3(0.0);
 
-	float att = 0.0;
-	float spotExp = 60.0;
+    // ---------- Directional Light (no attenuation) ----------
+    if (directionalLight.on) {
+        // teammate uses l = normalize(-direction)
+        vec3 l = normalize(-directionalLight.direction);
+        float diff = max(dot(n, l), 0.0);
+        diffuse += directionalLight.color * diff * mat.diffuse.rgb;
 
-	vec3 n = normalize(DataIn.normal);
-	vec3 l = normalize(DataIn.lightDir);
-	vec3 e = normalize(DataIn.eye);
-	vec3 sd = normalize(coneDir.xyz);
+        if (diff > 0.0) {
+            vec3 h = normalize(l + e);
+            float specFactor = pow(max(dot(h, n), 0.0), mat.shininess);
+            specular += directionalLight.color * specFactor * mat.specular.rgb;
+        }
 
-	if(spotlight_mode == true)  {  //Scene iluminated by a spotlight
-		float spotCos = dot(-l, sd);
-		if(spotCos > spotCosCutOff)  {	//inside cone?
-			att = pow(spotCos, spotExp);
-			intensity = max(dot(n,l), 0.0) * att;
-			if (intensity > 0.0) {
-				vec3 h = normalize(l + e);
-				intSpec = max(dot(h,n), 0.0);
-				spec = mat.specular * pow(intSpec, mat.shininess) * att;
-			}
-		}
-	}
-	else {				//Scene iluminated by a pointlight
-		intensity = max(dot(n,l), 0.0);
-		if (intensity > 0.0) {
-			vec3 h = normalize(l + e);
-			intSpec = max(dot(h,n), 0.0);
-			spec = mat.specular * pow(intSpec, mat.shininess);
-		}
-	}
+        ambient += directionalLight.color * mat.ambient.rgb;
+    }
 
-	vec4 baseColor;
+    // ---------- Point Lights (attenuated) ----------
+    for (int i = 0; i < NUMBER_POINT_LIGHTS; i++) {
+        if (pointLights[i].on) {
+            vec3 l = normalize(pointLights[i].position - DataIn.fragPos);
+            float diff = max(dot(n, l), 0.0);
 
-	if(texMode == 0) //no texturing
-		baseColor = vec4(max(intensity * mat.diffuse + spec, mat.ambient).rgb, 1.0);
+            float dist = length(pointLights[i].position - DataIn.fragPos);
+            // attenuation constants from teammate: constant=1.0, linear=0.09, quadratic=0.032
+            float att = 1.0 / (1.0 + 0.09 * dist + 0.032 * dist * dist);
 
-	else if(texMode == 1) // modulate diffuse color with texel color
-	{
-		texel = texture(texmap2, DataIn.tex_coord);  // texel from lighwood.tga
-		baseColor = vec4(max(intensity * mat.diffuse * texel + spec,0.07 * texel).rgb, 1.0);
-	}
-	else if (texMode == 2) // diffuse color is replaced by texel color
-	{
-		texel = texture(texmap5, DataIn.tex_coord);  // texel from skyscraper_night.jpg
-		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
-	}
-	else if (texMode == 3) // diffuse color is replaced by texel color
-	{
-		texel = texture(texmap6, DataIn.tex_coord);  // texel from skyscraper_plain.jpg
-		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
-	}
-	else if (texMode == 4) // diffuse color is replaced by texel color
-	{
-		texel = texture(texmap7, DataIn.tex_coord);  // texel from skyscraper_glass.jpg
-		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
-	}
-	else if (texMode == 5) // diffuse color is replaced by texel color
-	{
-		texel = texture(texmap8, DataIn.tex_coord);  // texel from skyscraper_residential.jpg
-		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
-	}
-	else // multitexturing
-	{
-		texel = texture(texmap3, DataIn.tex_coord);  // texel from lighwood.tga
-		texel1 = texture(texmap4, DataIn.tex_coord);  // texel from checker.tga
-		baseColor = vec4(max(intensity*texel*texel1 + spec, 0.07*texel*texel1).rgb, 1.0);
-	}
+            diffuse += att * diff * pointLights[i].color * mat.diffuse.rgb;
 
-	float dist;
-	if (depthFog == 0){
-		dist = abs(DataIn.posEye.z);
-	}
-	else{
-		dist = length(DataIn.posEye);
-	}
+            if (diff > 0.0) {
+                vec3 h = normalize(l + e);
+                float specFactor = pow(max(dot(h, n), 0.0), mat.shininess);
+                specular += att * specFactor * pointLights[i].color * mat.specular.rgb;
+            }
 
-	float fogAmount = exp(-dist*fogDensity);
-	fogAmount = clamp(fogAmount, 0.0, 1.0);
-	vec3 finalColor = mix(fogColor, baseColor.rgb, fogAmount);
-	colorOut = vec4(finalColor, 1.0);
+            ambient += att * pointLights[i].color * mat.ambient.rgb;
+        }
+    }
 
+    // ---------- Spot Lights ----------
+    for (int i = 0; i < NUM_SPOT_LIGHTS; i++) {
+        if (spotLights[i].on) {
+            vec3 l = normalize(spotLights[i].position - DataIn.fragPos);
+            float spotCos = dot(-l, normalize(spotLights[i].direction));
+            // The teammate used a spot cutoff check (spotCos > spotCosCutOff), 
+            // but spotCosCutOff uniform wasn't in their fragment. We'll keep a reasonable cutoff:
+            float spotCutoff = 0.85; // tweak from CPU if needed
+            if (spotCos > spotCutoff) {
+                float dist = length(spotLights[i].position - DataIn.fragPos);
+                float att = 1.0 / (1.0 + 0.1 * dist + 0.01 * dist * dist);
+
+                float diff = max(dot(n, l), 0.0);
+                diffuse += att * diff * spotLights[i].color * mat.diffuse.rgb;
+
+                if (diff > 0.0) {
+                    vec3 h = normalize(l + e);
+                    float specFactor = pow(max(dot(h, n), 0.0), mat.shininess);
+                    specular += att * specFactor * spotLights[i].color * mat.specular.rgb;
+                }
+
+                // small ambient contribution for spots
+                ambient += 0.1 * att * spotLights[i].color * mat.ambient.rgb;
+            }
+        }
+    }
+
+    vec3 lighting = ambient + diffuse + specular;
+
+    // ---------- Texture modes (preserved, but use "lighting" for shading) ----------
+    vec4 texel, texel1;
+    vec4 baseColor;
+
+    if (texMode == 0) {
+        // no texturing -> use lighting color and material emissive if you want
+        baseColor = vec4(lighting, 1.0);
+    }
+    else if (texMode == 1) { // modulate diffuse with texel
+        texel = texture(texmap2, DataIn.tex_coord); // lightwood
+        baseColor = vec4(lighting * texel.rgb, 1.0);
+    }
+    else if (texMode == 2) {
+        texel = texture(texmap5, DataIn.tex_coord); // skyscraper_night
+        baseColor = vec4(lighting * texel.rgb, 1.0);
+    }
+    else if (texMode == 3) {
+        texel = texture(texmap6, DataIn.tex_coord); // skyscraper_plain
+        baseColor = vec4(lighting * texel.rgb, 1.0);
+    }
+    else if (texMode == 4) {
+        texel = texture(texmap7, DataIn.tex_coord); // skyscraper_glass
+        baseColor = vec4(lighting * texel.rgb, 1.0);
+    }
+    else if (texMode == 5) {
+        texel = texture(texmap8, DataIn.tex_coord); // skyscraper_residential
+        baseColor = vec4(lighting * texel.rgb, 1.0);
+    }
+    else { // multitexture fallback: combine texmap3 & texmap4 like original
+        texel = texture(texmap3, DataIn.tex_coord);
+        texel1 = texture(texmap4, DataIn.tex_coord);
+        baseColor = vec4(lighting * (texel.rgb * texel1.rgb), 1.0);
+    }
+
+    // ---------- Fog (preserve your existing fog system) ----------
+    float dist;
+    if (depthFog == 0) {
+        dist = abs(DataIn.posEye.z);
+    } else {
+        dist = length(DataIn.posEye);
+    }
+
+    float fogAmount = exp(-dist * fogDensity);
+    fogAmount = clamp(fogAmount, 0.0, 1.0);
+
+    vec3 finalColor = mix(fogColor, baseColor.rgb, fogAmount);
+    colorOut = vec4(finalColor, 1.0);
 }

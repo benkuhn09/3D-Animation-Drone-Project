@@ -52,8 +52,6 @@ Renderer renderer;
 	
 // Camera Position
 float camX, camY, camZ;
-
-// Camera Spherical Coordinates
 float alpha = 57.0f, beta = 18.0f;
 float r = 45.0f;
 
@@ -67,12 +65,12 @@ int startX, startY, tracking = 0;
 long myTime,timebase = 0,frame = 0;
 char s[32];
 
-float lightPos[4] = {4.0f, 5.0f, 2.0f, 1.0f};
+//float lightPos[4] = {4.0f, 5.0f, 2.0f, 1.0f};
 //float lightPos[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 
 //Spotlight
-bool spotlight_mode = false;
-float coneDir[4] = { 0.0f, -0.0f, -1.0f, 0.0f };
+//bool spotlight_mode = false;
+//float coneDir[4] = { 0.0f, -0.0f, -1.0f, 0.0f };
 
 bool fontLoaded = false;
 
@@ -80,6 +78,46 @@ bool fontLoaded = false;
 bool fogEnabled = true;
 
 float aspectRatio = 1.0f;
+
+/*Lighting Globals*/
+float directionalLightPos[4] = { 1.0f, -100.0f, -100.0f, 0.0f };
+bool directionalLightOn = true;
+
+float pointLightPos[NUMBER_POINT_LIGHTS][4] = {
+	{ 0.0f, 5.0f,  -10.0f, 1.0f},
+	{ 10.0f, 5.0f,  10.0f, 1.0f},
+	{-10.0f, 5.0f,   0.0f, 1.0f},
+	{ 20.0f, 5.0f, -15.0f, 1.0f},
+	{-20.0f, 5.0f,  10.0f, 1.0f},
+	{  0.0f, 5.0f,  15.0f, 1.0f}
+};
+
+float pointLightColor[NUMBER_POINT_LIGHTS][3] = {
+	{1.0f, 0.0f, 0.0f}, // red
+	{0.0f, 1.0f, 0.0f}, // green
+	{0.0f, 0.0f, 1.0f}, // blue
+	{1.0f, 1.0f, 0.0f}, // yellow
+	{1.0f, 0.0f, 1.0f}, // magenta
+	{0.0f, 1.0f, 1.0f}  // cyan
+};
+
+bool pointLightsOn = true;
+float pointLightEye[NUMBER_POINT_LIGHTS][4];
+
+float spotLightPos[NUMBER_SPOT_LIGHTS][4] = {
+	{ -1.0f, 0.0f, 1.0f, 1.0f }, // left
+	{  1.0f, 0.0f, 1.0f, 1.0f }  // right
+};
+
+float spotLightDir[NUMBER_SPOT_LIGHTS][4] = {
+	{ 0.4f, -0.5f,  1.0f, 0.0f },  // left
+	{-0.4f, -0.5f,  1.0f, 0.0f }   // right
+};
+
+bool spotLightsOn = true;
+float spotCutOff = 0.93f;
+
+
 struct Camera {
 	float pos[3] = { 0.0f, 0.0f, 0.0f };
 	float target[3] = { 0.0f, 0.0f, 0.0f };
@@ -535,17 +573,57 @@ void renderSim(void) {
 		cam.target[0], cam.target[1], cam.target[2],
 		0, 1, 0);
 
+	/*sending lights to the renderer*/
+
+	// Directional
+	float dirLightAux[4];
+	mu.multMatrixPoint(gmu::VIEW, directionalLightPos, dirLightAux);
+	renderer.setDirectionalLight(dirLightAux, 1.0f, 1.0f, 1.0f, directionalLightOn);
+
+	// Point lights
+	for (int i = 0; i < NUMBER_POINT_LIGHTS; i++) {
+		mu.multMatrixPoint(gmu::VIEW, pointLightPos[i], pointLightEye[i]);
+		pointLightEye[i][0] /= pointLightEye[i][3];
+		pointLightEye[i][1] /= pointLightEye[i][3];
+		pointLightEye[i][2] /= pointLightEye[i][3];
+	}
+	renderer.setPointLights(pointLightEye, pointLightColor, pointLightsOn);
+
+	// Spotlights
+	float spotEyePos[NUMBER_SPOT_LIGHTS][4];
+	float spotEyeDir[NUMBER_SPOT_LIGHTS][4];
+
+	for (int i = 0; i < NUMBER_SPOT_LIGHTS; ++i) {
+		mu.multMatrixPoint(gmu::VIEW, spotLightPos[i], spotEyePos[i]);
+		mu.multMatrixPoint(gmu::VIEW, spotLightDir[i], spotEyeDir[i]);
+
+		float len = sqrtf(spotEyeDir[i][0] * spotEyeDir[i][0] +
+			spotEyeDir[i][1] * spotEyeDir[i][1] +
+			spotEyeDir[i][2] * spotEyeDir[i][2]);
+		if (len > 1e-6f) {
+			spotEyeDir[i][0] /= len;
+			spotEyeDir[i][1] /= len;
+			spotEyeDir[i][2] /= len;
+		}
+	}
+
+	float spotColor[NUMBER_SPOT_LIGHTS][3];
+	for (int i = 0; i < NUMBER_SPOT_LIGHTS; ++i) {
+		spotColor[i][0] = 3.0f; spotColor[i][1] = 3.0f; spotColor[i][2] = 3.0f;
+	}
+	renderer.setSpotLights(spotEyePos, spotEyeDir, spotColor, spotLightsOn, spotCutOff);
+
 
 	//send the light position in eye coordinates
 	//renderer.setLightPos(lightPos); //efeito capacete do mineiro, ou seja lighPos foi definido em eye coord 
 
-	float lposAux[4];
-	mu.multMatrixPoint(gmu::VIEW, lightPos, lposAux);   //lightPos definido em World Coord so is converted to eye space
-	renderer.setLightPos(lposAux);
+	//float lposAux[4];
+	//mu.multMatrixPoint(gmu::VIEW, lightPos, lposAux);   //lightPos definido em World Coord so is converted to eye space
+	//renderer.setLightPos(lposAux);
 
 	//Spotlight settings
-	renderer.setSpotLightMode(spotlight_mode);
-	renderer.setSpotParam(coneDir, 0.93);
+	//renderer.setSpotLightMode(spotlight_mode);
+	//renderer.setSpotParam(coneDir, 0.93);
 
 	dataMesh data;
 	
@@ -727,15 +805,14 @@ void keyboardDown(unsigned char key, int x, int y) {
 	case '2': activeCam = 1; break;
 	case '3': activeCam = 2; break;
 
-	case 'c':
-		printf("Camera Spherical Coordinates (%f, %f, %f)\n", alpha, beta, r);
-		break;
+	case 'c': pointLightsOn = !pointLightsOn; break;
+	case 'h': spotLightsOn = !spotLightsOn; break;
 
-	case 'l':
+	/*case 'l':
 		spotlight_mode = !spotlight_mode;
 		printf(spotlight_mode ? "Point light disabled. Spot light enabled\n"
 			: "Spot light disabled. Point light enabled\n");
-		break;
+		break;*/
 
 	case 'r':
 		alpha = 57.0f; beta = 18.0f; r = 45.0f;
@@ -745,8 +822,9 @@ void keyboardDown(unsigned char key, int x, int y) {
 		break;
 
 	case 'm': glEnable(GL_MULTISAMPLE); break;
-	case 'n': glDisable(GL_MULTISAMPLE); break;
+	case 'n': directionalLightOn = !directionalLightOn; break;
 	case 'f': fogEnabled = !fogEnabled; break;
+
 	}
 }
 void keyboardUp(unsigned char key, int x, int y) {
