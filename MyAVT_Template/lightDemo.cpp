@@ -109,6 +109,7 @@ Drone drone;
 struct Building {
 	float height;
 	int meshID;
+	int texMode;
 };
 
 const int GRID_SIZE = 6;
@@ -283,6 +284,7 @@ void initCity() {
 			float t = rand() / (float)RAND_MAX;  // random float 0–1
 			city[i][j].height = minHeight + t * (maxHeight - minHeight);
 			city[i][j].meshID = (rand() % 2 == 0) ? 1 : 3;  // cube or cylinder
+			city[i][j].texMode = 2 + (rand() % 4);
 			/* initializing offsets for building. used for collision. */
 			buildingOffset[i][j][0] = 0.0f;
 			buildingOffset[i][j][1] = 0.0f;
@@ -426,7 +428,7 @@ void updateDrone(float deltaTime) {
 			resetDrone();
 			break; // stop after first collision
 		}
-	}
+	} 
 
 }
 
@@ -504,6 +506,10 @@ void renderSim(void) {
 	renderer.setTexUnit(2, 2);
 	renderer.setTexUnit(3, 3);
 	renderer.setTexUnit(4, 4);
+	renderer.setTexUnit(5, 5);
+	renderer.setTexUnit(6, 6);
+	renderer.setTexUnit(7, 7);
+	renderer.setTexUnit(8, 8);
 
 	// load identity matrices
 	mu.loadIdentity(gmu::VIEW);
@@ -554,7 +560,7 @@ void renderSim(void) {
 	mu.computeNormalMatrix3x3();
 
 	data.meshID = 0;
-	data.texMode = 3; //modulate diffuse color with texel color
+	data.texMode = 6; //two texels blended
 	data.vm = mu.get(gmu::VIEW_MODEL),
 	data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 	data.normal = mu.getNormalMatrix();
@@ -616,7 +622,7 @@ void renderSim(void) {
 			//data.meshID = objId;
 			//data.meshID = (rand() % 2 == 0) ? 1 : 3;
 			data.meshID = city[i][j].meshID;
-			data.texMode = i;   //0:no texturing; 1:modulate diffuse color with texel color; 2:diffuse color is replaced by texel color; 3: multitexturing
+			data.texMode = city[i][j].texMode;   //0:no texturing; 1:modulate diffuse color with texel color; 2:diffuse color is replaced by texel color; 3: multitexturing
 			data.vm = mu.get(gmu::VIEW_MODEL),
 			data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 			data.normal = mu.getNormalMatrix();
@@ -889,6 +895,10 @@ void buildScene()
 	renderer.TexObjArray.texture2D_Loader("assets/lightwood.tga");
 	renderer.TexObjArray.texture2D_Loader("assets/concrete.jpg");
 	renderer.TexObjArray.texture2D_Loader("assets/cobblestone.png");
+	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_night.jpg");
+	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_plain.jpg");
+	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_glass.jpg");
+	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_residential.jpg");
 
 	//Scene geometry with triangle meshes
 

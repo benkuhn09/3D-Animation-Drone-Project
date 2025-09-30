@@ -55,7 +55,7 @@ void Texture::textureCubeMap_Loader(const char **strFileName)
 	ilEnable(IL_ORIGIN_SET);
 	ilOriginFunc(IL_ORIGIN_UPPER_LEFT);
 
-	for (int i = 0; i < 6; i++) {
+	for (int i = 0; i < 9; i++) {
 		ilGenImages(1, &ImageName);
 		ilBindImage(ImageName);
 		 

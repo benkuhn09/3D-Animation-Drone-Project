@@ -24,6 +24,10 @@ uniform sampler2D texmap1;
 uniform sampler2D texmap2;
 uniform sampler2D texmap3;
 uniform sampler2D texmap4;
+uniform sampler2D texmap5;
+uniform sampler2D texmap6;
+uniform sampler2D texmap7;
+uniform sampler2D texmap8;
 
 uniform int texMode;
 uniform bool spotlight_mode;
@@ -84,7 +88,22 @@ void main() {
 	}
 	else if (texMode == 2) // diffuse color is replaced by texel color
 	{
-		texel = texture(texmap2, DataIn.tex_coord);  // texel from stone.tga
+		texel = texture(texmap5, DataIn.tex_coord);  // texel from skyscraper_night.jpg
+		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
+	}
+	else if (texMode == 3) // diffuse color is replaced by texel color
+	{
+		texel = texture(texmap6, DataIn.tex_coord);  // texel from skyscraper_plain.jpg
+		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
+	}
+	else if (texMode == 4) // diffuse color is replaced by texel color
+	{
+		texel = texture(texmap7, DataIn.tex_coord);  // texel from skyscraper_glass.jpg
+		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
+	}
+	else if (texMode == 5) // diffuse color is replaced by texel color
+	{
+		texel = texture(texmap8, DataIn.tex_coord);  // texel from skyscraper_residential.jpg
 		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
 	}
 	else // multitexturing

@@ -84,5 +84,8 @@
     <Image Include="assets\cobblestone.png">
       <Filter>Resource Files</Filter>
     </Image>
+    <Image Include="assets\skyscraper_night.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>

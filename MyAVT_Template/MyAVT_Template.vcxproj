@@ -186,6 +186,7 @@
     <Image Include="..\..\..\concrete.jpg" />
     <Image Include="assets\cobblestone.png" />
     <Image Include="assets\concrete.jpg" />
+    <Image Include="assets\skyscraper_night.jpg" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
