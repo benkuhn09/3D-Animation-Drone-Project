@@ -152,12 +152,6 @@ bool Renderer::setRenderMeshesShaderProg(const std::string& vertShaderPath, cons
     tex_loc[0] = glGetUniformLocation(program, "texmap");
     tex_loc[1] = glGetUniformLocation(program, "texmap1");
     tex_loc[2] = glGetUniformLocation(program, "texmap2");
-    tex_loc[3] = glGetUniformLocation(program, "texmap3");
-    tex_loc[4] = glGetUniformLocation(program, "texmap4");
-    tex_loc[5] = glGetUniformLocation(program, "texmap5");
-    tex_loc[6] = glGetUniformLocation(program, "texmap6");
-    tex_loc[7] = glGetUniformLocation(program, "texmap7");
-    tex_loc[8] = glGetUniformLocation(program, "texmap8");
 
     return(shader.isProgramLinked() && shader.isProgramValid());
 }
@@ -166,11 +160,11 @@ Renderer::~Renderer() {
     glDeleteProgram(textProgram);
     for (auto& mesh : myMeshes) glDeleteVertexArrays(1, &(mesh.vao));
     myMeshes.clear(); myMeshes.shrink_to_fit();
- 
+
 }
 
 bool Renderer::setRenderTextShaderProg(const std::string& vertShaderPath, const std::string& fragShaderPath) {
-   
+
     Shader shader;    // Shader for rendering True Type Font (ttf) bitmap text
     shader.init();
     textProgram = shader.getProgramIndex();
@@ -202,7 +196,6 @@ void Renderer::activateRenderMeshesShaderProg() {   //GLSL program to draw the m
     glUseProgram(program);
 }
 
-
 void Renderer::setSpotParam(float* coneDir, const float cutOff) {
     GLint loc;
     loc = glGetUniformLocation(program, "coneDir");
@@ -224,22 +217,69 @@ void Renderer::setLightPos(float* lightPos) {
     glUniform4fv(lpos_loc, 1, lightPos);
 }
 
+void Renderer::setDirectionalLight(float* direction, float r, float g, float b, bool on) {
+    // Direction
+    GLint loc = glGetUniformLocation(program, "directionalLight.direction");
+    glUniform3fv(loc, 1, direction);
+
+    // Couleur
+    loc = glGetUniformLocation(program, "directionalLight.color");
+    glUniform3f(loc, r, g, b);
+
+    // Activation
+    loc = glGetUniformLocation(program, "directionalLight.on");
+    glUniform1i(loc, on ? 1 : 0);
+}
+
+void Renderer::setPointLights(const float lightEye[NUMBER_POINT_LIGHTS][4], const float lightColor[NUMBER_POINT_LIGHTS][3], bool lightsOn) {
+    for (int i = 0; i < NUMBER_POINT_LIGHTS; i++)
+    {
+        std::string posName = "pointLights[" + std::to_string(i) + "].position";
+        GLint locPos = glGetUniformLocation(program, posName.c_str());
+        glUniform3f(locPos, lightEye[i][0], lightEye[i][1], lightEye[i][2]);
+
+        std::string colorName = "pointLights[" + std::to_string(i) + "].color";
+        GLint locColor = glGetUniformLocation(program, colorName.c_str());
+        glUniform3f(locColor, lightColor[i][0], lightColor[i][1], lightColor[i][2]);
+
+        std::string onName = "pointLights[" + std::to_string(i) + "].on";
+        GLint locOn = glGetUniformLocation(program, onName.c_str());
+        glUniform1i(locOn, lightsOn ? 1 : 0);
+    }
+}
+
+void Renderer::setSpotLights(const float spotPosEye[][4], const float spotDirEye[][4], const float spotColor[][3], bool spotOn, float spotCutOff)
+{
+    // Assure-toi que le shader des meshes est actif
+    glUseProgram(program);
+
+    // envoie spotCutOff global (cosinus du cutoff)
+    GLint locCut = glGetUniformLocation(program, "spotCosCutOff");
+    if (locCut != -1) glUniform1f(locCut, spotCutOff);
+
+    for (int i = 0; i < NUMBER_SPOT_LIGHTS; ++i) {
+        std::string base = "spotLights[" + std::to_string(i) + "]";
+
+        GLint locPos = glGetUniformLocation(program, (base + ".position").c_str());
+        if (locPos != -1) glUniform3f(locPos, spotPosEye[i][0], spotPosEye[i][1], spotPosEye[i][2]);
+
+        GLint locDir = glGetUniformLocation(program, (base + ".direction").c_str());
+        if (locDir != -1) glUniform3f(locDir, spotDirEye[i][0], spotDirEye[i][1], spotDirEye[i][2]);
+
+        GLint locColor = glGetUniformLocation(program, (base + ".color").c_str());
+        if (locColor != -1) glUniform3f(locColor, spotColor[i][0], spotColor[i][1], spotColor[i][2]);
+
+        GLint locOn = glGetUniformLocation(program, (base + ".on").c_str());
+        if (locOn != -1) glUniform1i(locOn, spotOn ? 1 : 0);
+    }
+}
+
+
+
 void Renderer::setTexUnit(int tuId, int texObjId) {
     glActiveTexture(GL_TEXTURE0 + tuId);
     glBindTexture(GL_TEXTURE_2D, TexObjArray.getTextureId(texObjId));
     glUniform1i(tex_loc[tuId], tuId);
-}
-
-void Renderer::setFogParams(int depthFog, const float fogColor[3], float fogDensity) {
-    glUseProgram(program);
-
-    GLint locDepth = glGetUniformLocation(program, "depthFog");
-    GLint locColor = glGetUniformLocation(program, "fogColor");
-    GLint locDensity = glGetUniformLocation(program, "fogDensity");
-
-    if (locDepth != -1) glUniform1i(locDepth, depthFog);
-    if (locColor != -1) glUniform3fv(locColor, 1, fogColor);
-    if (locDensity != -1) glUniform1f(locDensity, fogDensity);
 }
 
 void Renderer::renderMesh(const dataMesh& data) {
@@ -262,8 +302,6 @@ void Renderer::renderMesh(const dataMesh& data) {
 
     // Render mesh
     glUniform1i(texMode_loc, data.texMode);
- 
-
 
     glBindVertexArray(myMeshes[data.meshID].vao);
     glDrawElements(myMeshes[data.meshID].type, myMeshes[data.meshID].numIndexes, GL_UNSIGNED_INT, nullptr);

@@ -4,30 +4,24 @@ uniform mat4 m_pvm;
 uniform mat4 m_viewModel;
 uniform mat3 m_normal;
 
-
-uniform vec4 l_pos;
-
 in vec4 position;
-in vec4 normal;    //por causa do gerador de geometria
+in vec4 normal;
 in vec4 texCoord;
 
 out Data {
-	vec3 normal;
-	vec3 eye;
-	vec3 lightDir;
-	vec2 tex_coord;
-	vec4 posEye;
+    vec3 normal;
+    vec3 eye;
+    vec3 fragPos;
+    vec2 tex_coord;
 } DataOut;
 
 void main () {
+    vec4 pos = m_viewModel * position;
 
-	vec4 pos = m_viewModel * position;
+    DataOut.normal = normalize(m_normal * normal.xyz);
+    DataOut.eye = vec3(-pos);
+    DataOut.fragPos = pos.xyz;
+    DataOut.tex_coord = texCoord.st;
 
-	DataOut.normal = normalize(m_normal * normal.xyz);
-	DataOut.lightDir = vec3(l_pos - pos);
-	DataOut.eye = vec3(-pos);
-	DataOut.tex_coord = texCoord.st;
-	DataOut.posEye = pos;
-
-	gl_Position = m_pvm * position;	
+    gl_Position = m_pvm * position;
 }

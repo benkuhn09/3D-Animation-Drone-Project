@@ -1,5 +1,9 @@
 #version 430
 
+#define NUMBER_POINT_LIGHTS 6
+#define NUM_SPOT_LIGHTS 2
+
+
 struct Materials {
 	vec4 diffuse;
 	vec4 ambient;
@@ -9,12 +13,31 @@ struct Materials {
 	int texCount;
 };
 
+struct DirectionalLight {
+    vec3 direction;
+    vec3 color;
+    bool on;
+};
+
+struct PointLight {
+    vec3 position;
+    vec3 color;
+    bool on;
+};
+
+struct SpotLight {
+    vec3 position;
+    vec3 direction;
+    vec3 color;
+    bool on;
+};
+
 in Data {
 	vec3 normal;
 	vec3 eye;
-	vec3 lightDir;
+	//vec3 lightDir;
+	vec3 fragPos;
 	vec2 tex_coord;
-	vec4 posEye;
 } DataIn;
 
 uniform Materials mat;
@@ -22,26 +45,22 @@ uniform Materials mat;
 uniform sampler2D texmap;
 uniform sampler2D texmap1;
 uniform sampler2D texmap2;
-uniform sampler2D texmap3;
-uniform sampler2D texmap4;
-uniform sampler2D texmap5;
-uniform sampler2D texmap6;
-uniform sampler2D texmap7;
-uniform sampler2D texmap8;
 
 uniform int texMode;
 uniform bool spotlight_mode;
 uniform vec4 coneDir;
 uniform float spotCosCutOff;
 
-uniform int depthFog;
-uniform vec3 fogColor;
-uniform float fogDensity;
+uniform DirectionalLight directionalLight;
+uniform PointLight pointLights[NUMBER_POINT_LIGHTS];
+uniform SpotLight spotLights[NUM_SPOT_LIGHTS];
 
 out vec4 colorOut;
 
 void main() {
 	vec4 texel, texel1;
+	vec4 finalColor = vec4(0.0);
+    
 
 	vec4 spec = vec4(0.0);
 	float intensity = 0.0f;
@@ -51,10 +70,15 @@ void main() {
 	float spotExp = 60.0;
 
 	vec3 n = normalize(DataIn.normal);
-	vec3 l = normalize(DataIn.lightDir);
+	//vec3 l = normalize(DataIn.lightDir);
 	vec3 e = normalize(DataIn.eye);
 	vec3 sd = normalize(coneDir.xyz);
 
+	vec3 ambient = vec3(0.0);
+    vec3 diffuse = vec3(0.0);
+    vec3 specular = vec3(0.0);
+
+	/* //lumiere du prof -- a supprimer 
 	if(spotlight_mode == true)  {  //Scene iluminated by a spotlight
 		float spotCos = dot(-l, sd);
 		if(spotCos > spotCosCutOff)  {	//inside cone?
@@ -74,56 +98,100 @@ void main() {
 			intSpec = max(dot(h,n), 0.0);
 			spec = mat.specular * pow(intSpec, mat.shininess);
 		}
+	}*/
+
+	if (directionalLight.on) {
+        // La direction de la lumière directionnelle est déjà en coordonnées de vue.
+        // On la normalise pour être sûr.
+        vec3 l = normalize(-directionalLight.direction);
+        
+        // Calcul de la contribution diffuse
+        float diff = max(dot(n, l), 0.0);
+        diffuse += directionalLight.color * diff * mat.diffuse.rgb;
+
+        // Calcul de la contribution spéculaire
+        if (diff > 0.0) {
+            vec3 h = normalize(l + e);
+            float specFactor = pow(max(dot(h, n), 0.0), mat.shininess);
+            specular += directionalLight.color * specFactor * mat.specular.rgb;
+        }
+        
+        // La lumière directionnelle n'a pas d'atténuation basée sur la distance
+        ambient += directionalLight.color * mat.ambient.rgb;
+    }
+
+	// Point lights
+	for (int i = 0; i < NUMBER_POINT_LIGHTS; i++) {
+		if (pointLights[i].on) {
+			// vecteur lumière (en view space)
+			vec3 l = normalize(pointLights[i].position - DataIn.fragPos);
+			float diff = max(dot(n, l), 0.0);
+
+			// distance entre fragment et la source
+			float dist = length(pointLights[i].position - DataIn.fragPos);
+			float att = 1.0 / (1.0 + 0.09 * dist + 0.032 * dist * dist);
+
+			diffuse += att * diff * pointLights[i].color * mat.diffuse.rgb;
+
+			if (diff > 0.0) {
+				vec3 h = normalize(l + e); // e reste le vecteur vue
+				float specFactor = pow(max(dot(h, n), 0.0), mat.shininess);
+				specular += att * specFactor * pointLights[i].color * mat.specular.rgb;
+			}
+
+			ambient += att * pointLights[i].color * mat.ambient.rgb;
+		}
 	}
 
-	vec4 baseColor;
+	for (int i = 0; i < NUM_SPOT_LIGHTS; i++) {
+		if (spotLights[i].on) {
+			// vecteur du fragment vers la lumière
+			vec3 l = normalize(spotLights[i].position - DataIn.fragPos);
 
-	if(texMode == 0) //no texturing
-		baseColor = vec4(max(intensity * mat.diffuse + spec, mat.ambient).rgb, 1.0);
+			// angle avec le cône
+			float spotCos = dot(-l, normalize(spotLights[i].direction));
+			if (spotCos > spotCosCutOff) {
+				// atténuation en fonction de la distance
+				float dist = length(spotLights[i].position - DataIn.fragPos);
+				float att = 1.0 / (1.0 + 0.1*dist + 0.01*dist*dist);
 
-	else if(texMode == 1) // modulate diffuse color with texel color
-	{
-		texel = texture(texmap2, DataIn.tex_coord);  // texel from lighwood.tga
-		baseColor = vec4(max(intensity * mat.diffuse * texel + spec,0.07 * texel).rgb, 1.0);
-	}
-	else if (texMode == 2) // diffuse color is replaced by texel color
-	{
-		texel = texture(texmap5, DataIn.tex_coord);  // texel from skyscraper_night.jpg
-		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
-	}
-	else if (texMode == 3) // diffuse color is replaced by texel color
-	{
-		texel = texture(texmap6, DataIn.tex_coord);  // texel from skyscraper_plain.jpg
-		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
-	}
-	else if (texMode == 4) // diffuse color is replaced by texel color
-	{
-		texel = texture(texmap7, DataIn.tex_coord);  // texel from skyscraper_glass.jpg
-		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
-	}
-	else if (texMode == 5) // diffuse color is replaced by texel color
-	{
-		texel = texture(texmap8, DataIn.tex_coord);  // texel from skyscraper_residential.jpg
-		baseColor = vec4(max(intensity*texel + spec, 0.07*texel).rgb, 1.0);
-	}
-	else // multitexturing
-	{
-		texel = texture(texmap3, DataIn.tex_coord);  // texel from lighwood.tga
-		texel1 = texture(texmap4, DataIn.tex_coord);  // texel from checker.tga
-		baseColor = vec4(max(intensity*texel*texel1 + spec, 0.07*texel*texel1).rgb, 1.0);
+				// diffuse
+				float diff = max(dot(n, l), 0.0);
+				diffuse += att * diff * spotLights[i].color * mat.diffuse.rgb;
+
+				// spéculaire
+				if (diff > 0.0) {
+					vec3 h = normalize(l + e);
+					float specFactor = pow(max(dot(h, n), 0.0), mat.shininess);
+					specular += att * specFactor * spotLights[i].color * mat.specular.rgb;
+				}
+
+				// lumière ambiante faible pour les spots
+				ambient += 0.1 * att * spotLights[i].color * mat.ambient.rgb;
+			}
+		}
 	}
 
-	float dist;
-	if (depthFog == 0){
-		dist = abs(DataIn.posEye.z);
-	}
-	else{
-		dist = length(DataIn.posEye);
-	}
 
-	float fogAmount = exp(-dist*fogDensity);
-	fogAmount = clamp(fogAmount, 0.0, 1.0);
-	vec3 finalColor = mix(fogColor, baseColor.rgb, fogAmount);
-	colorOut = vec4(finalColor, 1.0);
+	// Couleur finale
+	vec3 lighting = ambient + diffuse + specular;
+
+	if (texMode == 0) {
+		// Pas de texture
+		colorOut = vec4(lighting, 1.0);
+	}
+	else if (texMode == 1) {
+		texel = texture(texmap2, DataIn.tex_coord);
+		colorOut = vec4(lighting * texel.rgb, 1.0);
+	}
+	else if (texMode == 2) {
+		texel = texture(texmap, DataIn.tex_coord);
+		colorOut = vec4(lighting * texel.rgb, 1.0);
+	}
+	else {
+		texel  = texture(texmap2, DataIn.tex_coord);
+		texel1 = texture(texmap1, DataIn.tex_coord);
+		colorOut = vec4(lighting * (texel.rgb * texel1.rgb), 1.0);
+	}
 
 }
