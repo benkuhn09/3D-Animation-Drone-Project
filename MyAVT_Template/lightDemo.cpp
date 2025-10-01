@@ -540,8 +540,8 @@ void animate(float deltaTime) {
 	}
 
 	// --- Roll (arrow left/right) ---
-	if (specialKeys[GLUT_KEY_LEFT])  drone.roll -= drone.pitchRate * deltaTime;
-	if (specialKeys[GLUT_KEY_RIGHT]) drone.roll += drone.pitchRate * deltaTime;
+	if (specialKeys[GLUT_KEY_LEFT])  drone.roll += drone.pitchRate * deltaTime;
+	if (specialKeys[GLUT_KEY_RIGHT]) drone.roll -= drone.pitchRate * deltaTime;
 
 	// Apply some damping to avoid infinite drift when keys released
 	drone.vSpeed *= 0.98f;
