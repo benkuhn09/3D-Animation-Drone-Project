@@ -80,6 +80,98 @@ bool fogEnabled = true;
 
 float aspectRatio = 1.0f;
 
+bool debugDrawFlyingAABB = true;  // toggle with 'b'
+int  debugFlyIndex = 0;           // select which flying object, [0..NUM_FLYING_OBJECTS-1]
+int  wireCubeMeshID = -1;         // green wire cube used for drawing AABBs
+
+
+
+struct Mat4 {
+	float m[16]; // column-major
+};
+
+static Mat4 I4() {
+	Mat4 M{};
+	M.m[0] = M.m[5] = M.m[10] = M.m[15] = 1.0f;
+	return M;
+}
+
+static Mat4 mat4FromGmu(const float* g) {
+	Mat4 M{};
+	for (int i = 0; i < 16; ++i) M.m[i] = g[i]; // gmu is column-major too
+	return M;
+}
+
+// transform a point (x,y,z,1)
+static void xformPoint(const Mat4& M, const float p[3], float out[3]) {
+	out[0] = M.m[0] * p[0] + M.m[4] * p[1] + M.m[8] * p[2] + M.m[12];
+	out[1] = M.m[1] * p[0] + M.m[5] * p[1] + M.m[9] * p[2] + M.m[13];
+	out[2] = M.m[2] * p[0] + M.m[6] * p[1] + M.m[10] * p[2] + M.m[14];
+}
+
+// given a local AABB and a model matrix, compute world AABB
+static void aabbFromXformedBox(const float localMin[3], const float localMax[3],
+	const Mat4& M, float outMin[3], float outMax[3]) {
+	// 8 corners
+	float c[8][3] = {
+		{localMin[0],localMin[1],localMin[2]},
+		{localMax[0],localMin[1],localMin[2]},
+		{localMin[0],localMax[1],localMin[2]},
+		{localMax[0],localMax[1],localMin[2]},
+		{localMin[0],localMin[1],localMax[2]},
+		{localMax[0],localMin[1],localMax[2]},
+		{localMin[0],localMax[1],localMax[2]},
+		{localMax[0],localMax[1],localMax[2]}
+	};
+	float w[3]; xformPoint(M, c[0], w);
+	outMin[0] = outMax[0] = w[0];
+	outMin[1] = outMax[1] = w[1];
+	outMin[2] = outMax[2] = w[2];
+	for (int i = 1;i < 8;++i) {
+		xformPoint(M, c[i], w);
+		outMin[0] = std::min(outMin[0], w[0]); outMax[0] = std::max(outMax[0], w[0]);
+		outMin[1] = std::min(outMin[1], w[1]); outMax[1] = std::max(outMax[1], w[1]);
+		outMin[2] = std::min(outMin[2], w[2]); outMax[2] = std::max(outMax[2], w[2]);
+	}
+}
+
+// Draw a wireframe AABB given min/max in world space using a green cube mesh.
+// Assumes renderer meshes shader is active.
+/*static void drawWireAABB(const float bmin[3], const float bmax[3]) {
+	// scale and translate a unit cube in [0,1]^3
+	const float sx = (bmax[0] - bmin[0]);
+	const float sy = (bmax[1] - bmin[1]);
+	const float sz = (bmax[2] - bmin[2]);
+
+	mu.pushMatrix(gmu::MODEL);
+	mu.translate(gmu::MODEL, bmin[0], bmin[1], bmin[2]);
+	mu.scale(gmu::MODEL, sx, sy, sz);
+
+	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+	mu.computeNormalMatrix3x3();
+
+	dataMesh d{};
+	d.meshID = wireCubeMeshID;   // green cube created in buildScene
+	d.texMode = 0;
+	d.vm = mu.get(gmu::VIEW_MODEL);
+	d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+	d.normal = mu.getNormalMatrix();
+
+	// draw as wireframe (line mode) + thicker lines, backfaces visible
+	glDisable(GL_CULL_FACE);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	glLineWidth(2.0f);
+
+	renderer.renderMesh(d);
+
+	// restore state
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glEnable(GL_CULL_FACE);
+
+	mu.popMatrix(gmu::MODEL);
+}*/
+
+
 /*Lighting Globals*/
 float directionalLightPos[4] = { 1.0f, -100.0f, -100.0f, 0.0f };
 bool directionalLightOn = true;
@@ -389,43 +481,100 @@ void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
 
 
 void computeDroneAABB(const Drone& drone, float outMin[3], float outMax[3]) {
-	// match rendering scale
-	const float bodyX = 2.0f, bodyY = 0.6f, bodyZ = 2.0f;
-	const float rotorX = 1.7f, rotorY = 0.3f, rotorZ = 1.7f;
+	// shapes in local space
+	const float cubeMin[3] = { 0.0f, 0.0f, 0.0f };  // unit cube [0,1]^3
+	const float cubeMax[3] = { 1.0f, 1.0f, 1.0f };
 
-	// body half extents
-	float halfX = bodyX * 0.5f;
-	float halfY = bodyY * 0.5f;
-	float halfZ = bodyZ * 0.5f;
+	// rotor cylinder after the render's translate(0.5,0,0.5) is applied:
+	// X,Z in [0,1], Y in [-0.5, 0.5]
+	const float cylMin[3] = { -0.5f, -0.5f, -0.5f };
+	const float cylMax[3] = { 0.5f,  0.5f,  0.5f };
 
-	// rotor half extents (they extend beyond body corners)
-	float rotorHalfX = rotorX * 0.5f;
-	float rotorHalfY = rotorY * 0.5f;
-	float rotorHalfZ = rotorZ * 0.5f;
+	const float bodyScaleX = 2.0f, bodyScaleY = 0.6f, bodyScaleZ = 2.0f;
+	const float rotorScaleX = 1.0f, rotorScaleY = 0.3f, rotorScaleZ = 1.0f;
+	const float rotorHeight = 0.2f;
+	const float halfX = bodyScaleX * 0.5f;
+	const float halfZ = bodyScaleZ * 0.5f;
 
-	// effective extents = body + rotor contribution
-	float extentX = halfX + rotorHalfX;
-	float extentY = halfY + rotorHalfY;  // rotors add a bit of thickness
-	float extentZ = halfZ + rotorHalfZ;
+	bool first = true;
+	auto accumulateCurrentMuModel = [&](const float lmin[3], const float lmax[3]) {
+		Mat4 M = mat4FromGmu(mu.get(gmu::MODEL));
+		float wmin[3], wmax[3];
+		aabbFromXformedBox(lmin, lmax, M, wmin, wmax);
+		if (first) {
+			outMin[0] = wmin[0]; outMin[1] = wmin[1]; outMin[2] = wmin[2];
+			outMax[0] = wmax[0]; outMax[1] = wmax[1]; outMax[2] = wmax[2];
+			first = false;
+		}
+		else {
+			outMin[0] = std::min(outMin[0], wmin[0]);
+			outMin[1] = std::min(outMin[1], wmin[1]);
+			outMin[2] = std::min(outMin[2], wmin[2]);
+			outMax[0] = std::max(outMax[0], wmax[0]);
+			outMax[1] = std::max(outMax[1], wmax[1]);
+			outMax[2] = std::max(outMax[2], wmax[2]);
+		}
+		};
 
-	outMin[0] = drone.pos[0] - extentX;
-	outMax[0] = drone.pos[0] + extentX;
-	outMin[1] = drone.pos[1] - extentY;
-	outMax[1] = drone.pos[1] + extentY;
-	outMin[2] = drone.pos[2] - extentZ;
-	outMax[2] = drone.pos[2] + extentZ;
+	// === Recreate EXACT render path with mu ===
+	mu.pushMatrix(gmu::MODEL);
+	mu.loadIdentity(gmu::MODEL);
+
+	// base drone transform (translate + yaw + pitch + roll) — same order as render
+	mu.translate(gmu::MODEL, drone.pos[0], drone.pos[1], drone.pos[2]);
+	mu.rotate(gmu::MODEL, drone.dirAngle, 0.0f, 1.0f, 0.0f); // yaw
+	mu.rotate(gmu::MODEL, drone.pitch, 1.0f, 0.0f, 0.0f); // pitch
+	mu.rotate(gmu::MODEL, drone.roll, 0.0f, 0.0f, 1.0f); // roll
+
+	// --- Body (matches renderSim) ---
+	mu.pushMatrix(gmu::MODEL);
+	mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f); // center cube
+	mu.scale(gmu::MODEL, bodyScaleX, bodyScaleY, bodyScaleZ);
+	accumulateCurrentMuModel(cubeMin, cubeMax);
+	mu.popMatrix(gmu::MODEL);
+
+	// --- Rotors (4 corners; matches renderSim order) ---
+	for (int ix = -1; ix <= 1; ix += 2) {
+		for (int iz = -1; iz <= 1; iz += 2) {
+			mu.pushMatrix(gmu::MODEL);
+			mu.translate(gmu::MODEL, ix * halfX, rotorHeight, iz * halfZ);
+			// render path does this before scaling
+			mu.translate(gmu::MODEL, 0.5f, 0.0f, 0.5f);
+			mu.scale(gmu::MODEL, rotorScaleX, rotorScaleY, rotorScaleZ);
+			accumulateCurrentMuModel(cylMin, cylMax);
+			mu.popMatrix(gmu::MODEL);
+		}
+	}
+
+	mu.popMatrix(gmu::MODEL);
 }
 
 
 void computeFlyingObjectAABB(const FlyingObject& o, float outMin[3], float outMax[3]) {
-	float half = o.size * 0.5f;
-	outMin[0] = o.pos[0] - half;
-	outMax[0] = o.pos[0] + half;
-	outMin[1] = o.pos[1] - half;
-	outMax[1] = o.pos[1] + half;
-	outMin[2] = o.pos[2] - half;
-	outMax[2] = o.pos[2] + half;
+	// Recreate the SAME model xform path that you use to render the object.
+	mu.pushMatrix(gmu::MODEL);
+	mu.loadIdentity(gmu::MODEL);
+
+	mu.translate(gmu::MODEL, o.pos[0], o.pos[1], o.pos[2]);
+	if (o.rotAxis == 0)      mu.rotate(gmu::MODEL, o.rotAngle, 1.0f, 0.0f, 0.0f);
+	else if (o.rotAxis == 1) mu.rotate(gmu::MODEL, o.rotAngle, 0.0f, 1.0f, 0.0f);
+	else                     mu.rotate(gmu::MODEL, o.rotAngle, 0.0f, 0.0f, 1.0f);
+	mu.scale(gmu::MODEL, o.size, o.size, o.size);
+
+	// Get the exact matrix gmu used
+	Mat4 M = mat4FromGmu(mu.get(gmu::MODEL));
+	mu.popMatrix(gmu::MODEL);
+
+	// Local unit cube of the flying object (your createCube() is [0,1]^3)
+	const float cubeMin[3] = { 0.0f, 0.0f, 0.0f };
+	const float cubeMax[3] = { 1.0f, 1.0f, 1.0f };
+
+	aabbFromXformedBox(cubeMin, cubeMax, M, outMin, outMax);
 }
+
+
+
+
 
 bool findCollidingBuilding(const float dMin[3], const float dMax[3], int& outI, int& outJ) {
 	for (int i = 0; i < GRID_SIZE; ++i) {
@@ -932,6 +1081,7 @@ void renderSim(void) {
 
 	mu.popMatrix(gmu::MODEL);
 
+	
 
 	for (const auto& o : flyingObjects) {
 		
@@ -952,6 +1102,8 @@ void renderSim(void) {
 		data.vm = mu.get(gmu::VIEW_MODEL);
 		data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 		data.normal = mu.getNormalMatrix();
+
+		
 		renderer.renderMesh(data);
 		mu.popMatrix(gmu::MODEL);
 
@@ -960,6 +1112,7 @@ void renderSim(void) {
 	//Each glyph quad texture needs just one byte color channel: 0 in background and 1 for the actual character pixels. Use it for alpha blending
 	//text to be rendered in last place to be in front of everything
 	
+
 	if(fontLoaded) {
 		glDisable(GL_DEPTH_TEST);
 		TextCommand textCmd = { "2025 Drone Project", {100, 200}, 0.5 };
@@ -1023,6 +1176,20 @@ void keyboardDown(unsigned char key, int x, int y) {
 	case 'm': glEnable(GL_MULTISAMPLE); break;
 	case 'n': directionalLightOn = !directionalLightOn; break;
 	case 'f': fogEnabled = !fogEnabled; break;
+
+	case 'b': // toggle wire AABB
+		debugDrawFlyingAABB = !debugDrawFlyingAABB;
+		break;
+	case '[': // prev flying object
+		if (NUM_FLYING_OBJECTS > 0) {
+			debugFlyIndex = (debugFlyIndex - 1 + NUM_FLYING_OBJECTS) % NUM_FLYING_OBJECTS;
+		}
+		break;
+	case ']': // next flying object
+		if (NUM_FLYING_OBJECTS > 0) {
+			debugFlyIndex = (debugFlyIndex + 1) % NUM_FLYING_OBJECTS;
+		}
+		break;
 
 	}
 }
@@ -1291,6 +1458,24 @@ void buildScene()
 		memcpy(rotor.mat.emissive, emis, 4 * sizeof(float));
 		renderer.myMeshes.push_back(rotor);
 		droneRotorMeshID = (int)renderer.myMeshes.size() - 1;
+	}
+
+	{
+		MyMesh wire = createCube();  // unit cube in [0,1]^3
+
+		// Bright green material (no texture)
+		float amb[] = { 0.0f, 0.25f, 0.0f, 1.0f };
+		float dif[] = { 0.0f, 0.9f,  0.0f, 1.0f };
+		float spec[] = { 0.1f, 0.1f, 0.1f, 1.0f };
+		float emis[] = { 0.0f, 0.0f,  0.0f, 1.0f };
+		wire.mat.shininess = 10.0f; wire.mat.texCount = 0;
+		memcpy(wire.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(wire.mat.diffuse, dif, 4 * sizeof(float));
+		memcpy(wire.mat.specular, spec, 4 * sizeof(float));
+		memcpy(wire.mat.emissive, emis, 4 * sizeof(float));
+
+		renderer.myMeshes.push_back(wire);
+		wireCubeMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
 	// create geometry and VAO of the cone
