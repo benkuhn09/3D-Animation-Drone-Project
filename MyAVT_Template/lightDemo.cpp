@@ -266,7 +266,7 @@ struct FlyingObject {
 
 std::vector<FlyingObject> flyingObjects;
 
-const int   NUM_FLYING_OBJECTS = 15;
+const int   NUM_FLYING_OBJECTS = 8;
 const float SPAWN_RADIUS = 30.0f;  // birth ring radius (XZ)
 const float KILL_RADIUS = 45.0f;  // die when too far from center
 const float MIN_Y = 0.0f;
@@ -727,10 +727,6 @@ void animate(float deltaTime) {
 
 	updateDrone(deltaTime);
 }
-
-
-
-
 
 float lastTime = 0.0f;
 
