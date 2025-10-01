@@ -180,8 +180,12 @@ float nextSpeedBump = 5.0f;  // seconds
 // for later
 int meshFlyingObject = -1;
 
+int droneBodyMeshID = -1;
+int droneRotorMeshID = -1;
+
 int glassCubeMeshID = -1;
 int glassCylMeshID = -1;
+
 
 static inline float frand(float a, float b) {
 	return a + (b - a) * (rand() / (float)RAND_MAX);
@@ -337,23 +341,68 @@ bool aabbIntersect(const float minA[3], const float maxA[3], const float minB[3]
 void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
 	const float spacing = 7.2f;
 	const float floorSize = 45.0f;
-	const float halfScaleX = 2.3f * 0.5f; // half-size in X and Z
-	const float halfScaleZ = 2.3f * 0.5f;
+	const float scaleX = 2.3f;
+	const float scaleZ = 2.3f;
+
 	float xOffset = -floorSize / 2.0f + spacing / 2.0f;
 	float zOffset = -floorSize / 2.0f + spacing / 2.0f;
 
-	float cx = xOffset + i * spacing + buildingOffset[i][j][0]; // building center x
-	float cz = zOffset + j * spacing + buildingOffset[i][j][2]; // center z
+	float baseX = xOffset + i * spacing + buildingOffset[i][j][0];
+	float baseZ = zOffset + j * spacing + buildingOffset[i][j][2];
 	float h = city[i][j].height;
-	float cy = h * 0.5f + buildingOffset[i][j][1]; // assume base at y=0, center at height/2
+	float yOff = buildingOffset[i][j][1];
 
-	outMin[0] = cx - halfScaleX;
-	outMax[0] = cx + halfScaleX;
-	outMin[1] = 0.0f + buildingOffset[i][j][1];   // base sits on ground unless y offset applied
-	outMax[1] = h + buildingOffset[i][j][1];
-	outMin[2] = cz - halfScaleZ;
-	outMax[2] = cz + halfScaleZ;
+	int mID = city[i][j].meshID;
+
+	if (mID == 3 || mID == glassCylMeshID) {
+		// Cylinder: after scale+translate(0,0.5,0)
+		outMin[0] = baseX - scaleX * 0.5f;
+		outMax[0] = baseX + scaleX * 0.5f;
+		outMin[2] = baseZ - scaleZ * 0.5f;
+		outMax[2] = baseZ + scaleZ * 0.5f;
+		outMin[1] = yOff + 0.5f;     // cylinder bottom lifted by 0.5
+		outMax[1] = outMin[1] + h;   // full height above
+	}
+	else {
+		// Cube: spans full [0,scale] instead of centered
+		outMin[0] = baseX;
+		outMax[0] = baseX + scaleX;
+		outMin[2] = baseZ;
+		outMax[2] = baseZ + scaleZ;
+		outMin[1] = yOff;
+		outMax[1] = yOff + h;
+	}
 }
+
+
+void computeDroneAABB(const Drone& drone, float outMin[3], float outMax[3]) {
+	// match rendering scale
+	const float bodyX = 2.0f, bodyY = 0.6f, bodyZ = 2.0f;
+	const float rotorX = 1.7f, rotorY = 0.3f, rotorZ = 1.7f;
+
+	// body half extents
+	float halfX = bodyX * 0.5f;
+	float halfY = bodyY * 0.5f;
+	float halfZ = bodyZ * 0.5f;
+
+	// rotor half extents (they extend beyond body corners)
+	float rotorHalfX = rotorX * 0.5f;
+	float rotorHalfY = rotorY * 0.5f;
+	float rotorHalfZ = rotorZ * 0.5f;
+
+	// effective extents = body + rotor contribution
+	float extentX = halfX + rotorHalfX;
+	float extentY = halfY + rotorHalfY;  // rotors add a bit of thickness
+	float extentZ = halfZ + rotorHalfZ;
+
+	outMin[0] = drone.pos[0] - extentX;
+	outMax[0] = drone.pos[0] + extentX;
+	outMin[1] = drone.pos[1] - extentY;
+	outMax[1] = drone.pos[1] + extentY;
+	outMin[2] = drone.pos[2] - extentZ;
+	outMax[2] = drone.pos[2] + extentZ;
+}
+
 
 void computeFlyingObjectAABB(const FlyingObject& o, float outMin[3], float outMax[3]) {
 	float half = o.size * 0.5f;
@@ -414,9 +463,8 @@ void updateDrone(float deltaTime) {
 
 	/* drone collision handling */
 	// drone AABB
-	float half = drone.size * 0.5f;
-	float dMin[3] = { drone.pos[0] - half, drone.pos[1] - half, drone.pos[2] - half };
-	float dMax[3] = { drone.pos[0] + half, drone.pos[1] + half, drone.pos[2] + half };
+	float dMin[3], dMax[3];
+	computeDroneAABB(drone, dMin, dMax);
 
 	// check collisions
 	int hitI = -1, hitJ = -1;
@@ -651,18 +699,6 @@ void renderSim(void) {
 
 	renderer.setSpotLights(spotEyePos, spotEyeDir, spotColor, spotLightsOn, spotCutOff);
 
-
-	//send the light position in eye coordinates
-	//renderer.setLightPos(lightPos); //efeito capacete do mineiro, ou seja lighPos foi definido em eye coord 
-
-	//float lposAux[4];
-	//mu.multMatrixPoint(gmu::VIEW, lightPos, lposAux);   //lightPos definido em World Coord so is converted to eye space
-	//renderer.setLightPos(lposAux);
-
-	//Spotlight settings
-	//renderer.setSpotLightMode(spotlight_mode);
-	//renderer.setSpotParam(coneDir, 0.93);
-
 	dataMesh data;
 	
 	// Draw the floor - myMeshes[0] contains the quad object
@@ -771,7 +807,7 @@ void renderSim(void) {
 	glDisable(GL_BLEND);
 
 	// drone rendering
-	float droneScale = 1.0f;
+	/*float droneScale = 1.0f;
 
 	mu.pushMatrix(gmu::MODEL);
 	mu.translate(gmu::MODEL, drone.pos[0], drone.pos[1], drone.pos[2]);
@@ -789,6 +825,64 @@ void renderSim(void) {
 	data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 	data.normal = mu.getNormalMatrix();
 	renderer.renderMesh(data);
+	mu.popMatrix(gmu::MODEL);*/
+	// DRONE RENDERING
+	mu.pushMatrix(gmu::MODEL);
+	mu.translate(gmu::MODEL, drone.pos[0], drone.pos[1], drone.pos[2]);
+	mu.rotate(gmu::MODEL, drone.dirAngle, 0.0f, 1.0f, 0.0f);
+	mu.rotate(gmu::MODEL, drone.pitch, 1.0f, 0.0f, 0.0f);
+	mu.rotate(gmu::MODEL, drone.roll, 0.0f, 0.0f, 1.0f);
+
+	// --- Body ---
+	// The repo's cube is in [0,1]^3 with origin at the min corner.
+	// Center it at (0,0,0) first, THEN scale, so the drone origin is the body center.
+	float bodyScaleX = 2.0f;
+	float bodyScaleY = 0.6f;
+	float bodyScaleZ = 2.0f;
+
+	mu.pushMatrix(gmu::MODEL);
+	mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f);  // center unit cube around origin
+	mu.scale(gmu::MODEL, bodyScaleX, bodyScaleY, bodyScaleZ);
+	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+	mu.computeNormalMatrix3x3();
+	data.meshID = droneBodyMeshID;
+	data.texMode = 0;
+	data.vm = mu.get(gmu::VIEW_MODEL);
+	data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+	data.normal = mu.getNormalMatrix();
+	renderer.renderMesh(data);
+	mu.popMatrix(gmu::MODEL);
+
+	// --- Rotors (4 corners around the now-correct body center) ---
+	float rotorMargin = 0.0f;  // set to 0
+	float rotorHeight = 0.2f;
+
+	// half extents of the body (since it's centered at origin now)
+	float halfX = bodyScaleX * 0.5f + rotorMargin;
+	float halfZ = bodyScaleZ * 0.5f + rotorMargin;
+
+	for (int ix = -1; ix <= 1; ix += 2) {
+		for (int iz = -1; iz <= 1; iz += 2) {
+			mu.pushMatrix(gmu::MODEL);
+			mu.translate(gmu::MODEL, ix * halfX, rotorHeight, iz * halfZ);
+
+			// rotor mesh (cylinder) is already centered in XZ in this project,
+			// and height is in [-0.5,0.5] before scaling, so no centering translate needed.
+			mu.translate(gmu::MODEL, 0.5f, 0.0f, 0.5f);
+			mu.scale(gmu::MODEL, 1.7f, 0.3f, 1.7f);
+
+			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+			mu.computeNormalMatrix3x3();
+			data.meshID = droneRotorMeshID;
+			data.texMode = 0;
+			data.vm = mu.get(gmu::VIEW_MODEL);
+			data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+			data.normal = mu.getNormalMatrix();
+			renderer.renderMesh(data);
+			mu.popMatrix(gmu::MODEL);
+		}
+	}
+
 	mu.popMatrix(gmu::MODEL);
 
 
@@ -1137,6 +1231,41 @@ void buildScene()
 		glassCylMeshID = (int)renderer.myMeshes.size() - 1;
 
 	}
+
+	
+
+	// -- - Drone body(flattened cube) -- -
+	{
+		MyMesh body = createCube();
+		float amb[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+		float diff[] = { 0.6f, 0.6f, 0.6f, 1.0f };
+		float spec[] = { 0.8f, 0.8f, 0.8f, 1.0f };
+		float emis[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		body.mat.shininess = 80.0f; body.mat.texCount = 0;
+		memcpy(body.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(body.mat.diffuse, diff, 4 * sizeof(float));
+		memcpy(body.mat.specular, spec, 4 * sizeof(float));
+		memcpy(body.mat.emissive, emis, 4 * sizeof(float));
+		renderer.myMeshes.push_back(body);
+		droneBodyMeshID = (int)renderer.myMeshes.size() - 1;
+	}
+
+	// --- Drone rotor (cylinder) ---
+	{
+		MyMesh rotor = createCylinder(1.0f, 0.2f, 20); // wide & flat
+		float amb[] = { 0.1f, 0.1f, 0.1f, 1.0f };
+		float diff[] = { 0.4f, 0.4f, 0.4f, 1.0f };
+		float spec[] = { 0.8f, 0.8f, 0.8f, 1.0f };
+		float emis[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		rotor.mat.shininess = 100.0f; rotor.mat.texCount = 0;
+		memcpy(rotor.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(rotor.mat.diffuse, diff, 4 * sizeof(float));
+		memcpy(rotor.mat.specular, spec, 4 * sizeof(float));
+		memcpy(rotor.mat.emissive, emis, 4 * sizeof(float));
+		renderer.myMeshes.push_back(rotor);
+		droneRotorMeshID = (int)renderer.myMeshes.size() - 1;
+	}
+
 	// create geometry and VAO of the cone
 	//amesh = createCone(2.5f, 1.2f, 20);
 	//memcpy(amesh.mat.ambient, amb, 4 * sizeof(float));
