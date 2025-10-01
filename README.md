@@ -27,7 +27,6 @@ Camera Views
 3 → Chase camera that follows the drone.
 
 Mouse (drag left button) → Orbit the active camera (chase cam allows yaw/pitch offsets).
-Mouse (right button drag / scroll wheel) → Zoom in/out.
 
 Environment & Lighting
 C → Toggle point lights (colored city lights).
