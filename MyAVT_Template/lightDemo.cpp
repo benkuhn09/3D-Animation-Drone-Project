@@ -57,6 +57,7 @@ float r = 45.0f;
 
 // ACSII array for key states
 bool keys[256] = { false };
+bool specialKeys[256] = { false };
 
 // Mouse Tracking Variables
 int startX, startY, tracking = 0;
@@ -134,6 +135,8 @@ struct Drone {
 };
 
 Drone drone;
+float cam2_yawOffset = 0.0f;   // horizontal orbit around drone
+float cam2_pitchOffset = 0.0f; // vertical orbit around drone
 
 struct Building {
 	float height;
@@ -442,41 +445,47 @@ void resetDrone() {
 
 void updateDrone(float deltaTime) {
 
-	float prevPos[3] = {drone.pos[0], drone.pos[1], drone.pos[2]};
+	float prevPos[3] = { drone.pos[0], drone.pos[1], drone.pos[2] };
 
 	// convert angles to radians
-	float yawRad = drone.dirAngle * 3.14f / 180.0f;
-	float pitchRad = drone.pitch * 3.14f / 180.0f;
+	float yawRad = drone.dirAngle * 3.14159f / 180.0f;
+	float pitchRad = drone.pitch * 3.14159f / 180.0f;
+	float rollRad = drone.roll * 3.14159f / 180.0f;
 
-	// direction vector (XZ plane)
-	float dx = cos(pitchRad) * sin(yawRad);
-	float dz = cos(pitchRad) * cos(yawRad);
-	float dy = sin(pitchRad);
+	// forward direction (affected by yaw + pitch)
+	float dx = cosf(pitchRad) * sinf(yawRad);
+	float dz = cosf(pitchRad) * cosf(yawRad);
+	float dy = sinf(pitchRad);
 
-	// update position
-	drone.pos[0] += dx * drone.speed * deltaTime;
+	// sideways vector (perpendicular to forward in XZ)
+	float sideX = cosf(yawRad);
+	float sideZ = -sinf(yawRad);
+
+	// compute lateral velocity from roll (banking effect)
+	float rollInfluence = sinf(rollRad);
+	float lateralSpeed = rollInfluence * drone.maxSpeed * 0.5f;
+	// ^ adjust 0.5f scaling factor for strength of side-slip
+
+	// update position (forward + vertical + lateral)
+	drone.pos[0] += (dx * drone.speed + sideX * lateralSpeed) * deltaTime;
 	drone.pos[1] += drone.vSpeed * deltaTime + dy * drone.speed * deltaTime;
-	drone.pos[2] += dz * drone.speed * deltaTime;
+	drone.pos[2] += (dz * drone.speed + sideZ * lateralSpeed) * deltaTime;
 
 	// prevent drone from going below the floor
 	if (drone.pos[1] < 1.0f) drone.pos[1] = 1.0f;
 
-	/* drone collision handling */
-	// drone AABB
+	/* --- Collision Handling (unchanged) --- */
 	float dMin[3], dMax[3];
 	computeDroneAABB(drone, dMin, dMax);
 
-	// check collisions
 	int hitI = -1, hitJ = -1;
 	if (findCollidingBuilding(dMin, dMax, hitI, hitJ)) {
-		// revert drone to previous position and stop it
 		drone.pos[0] = prevPos[0];
 		drone.pos[1] = prevPos[1];
 		drone.pos[2] = prevPos[2];
 		drone.speed = 0.0f;
 		drone.vSpeed = 0.0f;
 
-		// nudge the building a little away from the drone (in XZ plane)
 		const float spacing = 7.2f;
 		const float floorSize = 45.0f;
 		float xOffset = -floorSize / 2.0f + spacing / 2.0f;
@@ -488,52 +497,54 @@ void updateDrone(float deltaTime) {
 		float dirx = (bx - prevPos[0]);
 		float dirz = (bz - prevPos[2]);
 		float len = sqrtf(dirx * dirx + dirz * dirz);
-		if (len < 1e-4f) {
-			// if practically same position, push in arbitrary direction
-			dirx = 1.0f; dirz = 0.0f; len = 1.0f;
-		}
+		if (len < 1e-4f) { dirx = 1.0f; dirz = 0.0f; len = 1.0f; }
 		dirx /= len; dirz /= len;
 
-		const float pushAmount = 0.15f; // tweak to make buildings move "very slightly"
+		const float pushAmount = 0.15f;
 		buildingOffset[hitI][hitJ][0] += dirx * pushAmount;
 		buildingOffset[hitI][hitJ][2] += dirz * pushAmount;
 
-		// clamp offsets so buildings don't fly off
 		const float maxOffset = 1.0f;
 		buildingOffset[hitI][hitJ][0] = std::max(-maxOffset, std::min(maxOffset, buildingOffset[hitI][hitJ][0]));
 		buildingOffset[hitI][hitJ][2] = std::max(-maxOffset, std::min(maxOffset, buildingOffset[hitI][hitJ][2]));
 	}
+
 	for (auto& o : flyingObjects) {
 		float oMin[3], oMax[3];
 		computeFlyingObjectAABB(o, oMin, oMax);
 		if (aabbIntersect(dMin, dMax, oMin, oMax)) {
 			resetDrone();
-			break; // stop after first collision
+			break;
 		}
-	} 
-
+	}
 }
 
+
 void animate(float deltaTime) {
-	// turn left/right
+	// --- Yaw control (A/D) ---
 	if (keys['a']) drone.dirAngle -= drone.turnRate * deltaTime;
 	if (keys['d']) drone.dirAngle += drone.turnRate * deltaTime;
 
-	// pitch up/down
-	if (keys['w']) drone.pitch += drone.pitchRate * deltaTime;
-	if (keys['s']) drone.pitch -= drone.pitchRate * deltaTime;
+	// --- Throttle (W/S) ---
+	if (keys['w']) drone.vSpeed = std::min(drone.vSpeed + 0.2f, drone.maxVSpeed);
+	if (keys['s']) drone.vSpeed = std::max(drone.vSpeed - 0.2f, -drone.maxVSpeed);
 
-	// throttle
-	if (keys['q']) drone.vSpeed += 0.2f;   // ascend
-	if (keys['e']) drone.vSpeed -= 0.2f;   // descend
+	// --- Pitch (arrow up/down) ---
+	if (specialKeys[GLUT_KEY_UP])    drone.pitch += drone.pitchRate * deltaTime;
+	if (specialKeys[GLUT_KEY_DOWN])  drone.pitch -= drone.pitchRate * deltaTime;
 
-	// forward speed control
-	if (keys['+']) drone.speed = min(drone.speed + 0.1f, drone.maxSpeed);
-	if (keys['-']) drone.speed = drone.speed - 0.1f;
+	// --- Roll (arrow left/right) ---
+	if (specialKeys[GLUT_KEY_LEFT])  drone.roll -= drone.pitchRate * deltaTime;
+	if (specialKeys[GLUT_KEY_RIGHT]) drone.roll += drone.pitchRate * deltaTime;
 
-	// update position (your existing function)
+	// Apply some damping to avoid infinite drift when keys released
+	drone.vSpeed *= 0.98f;
+	drone.speed *= 0.98f;
+
+	// Update position with new controls
 	updateDrone(deltaTime);
 }
+
 
 
 
@@ -551,11 +562,13 @@ void renderSim(void) {
 
 	float distance = 20.0f; // how far behind
 	float height = 10.0f;  // how far above
-	float yawRad = drone.dirAngle * 3.14f / 180.0f;
+	// apply offsets from mouse
+	float yawRad = (drone.dirAngle + cam2_yawOffset) * 3.14159f / 180.0f;
+	float pitchRadC = cam2_pitchOffset * 3.14159f / 180.0f;
 
-	cams[2].pos[0] = drone.pos[0] - sin(yawRad) * distance;
-	cams[2].pos[1] = drone.pos[1] + height;
-	cams[2].pos[2] = drone.pos[2] - cos(yawRad) * distance;
+	cams[2].pos[0] = drone.pos[0] - sin(yawRad) * cos(pitchRadC) * distance;
+	cams[2].pos[1] = drone.pos[1] + height + sin(pitchRadC) * distance;
+	cams[2].pos[2] = drone.pos[2] - cos(yawRad) * cos(pitchRadC) * distance;
 
 	cams[2].target[0] = drone.pos[0];
 	cams[2].target[1] = drone.pos[1];
@@ -645,7 +658,7 @@ void renderSim(void) {
 	};
 
 	float right[3] = { cosf(yawRadians), 0.0f, -sinf(yawRadians) }; // perp to forward
-	const float lateralOffset = 1.0f;  // left/right separation
+	const float lateralOffset = 2.0f;  // left/right separation
 	const float verticalOffset = -0.5f;  // a bit below the center
 	float spotWorldPos[NUMBER_SPOT_LIGHTS][4];
 	float spotWorldDir[NUMBER_SPOT_LIGHTS][4];
@@ -983,6 +996,15 @@ void keyboardUp(unsigned char key, int x, int y) {
 	keys[key] = false;
 }
 
+void specialDown(int key, int x, int y) {
+	specialKeys[key] = true;
+}
+
+void specialUp(int key, int x, int y) {
+	specialKeys[key] = false;
+}
+
+
 
 // ------------------------------------------------------------
 //
@@ -1020,81 +1042,52 @@ void processMouseButtons(int button, int state, int xx, int yy)
 
 void processMouseMotion(int xx, int yy)
 {
+	int deltaX = xx - startX;
+	int deltaY = yy - startY;
 
-	int deltaX, deltaY;
-	float alphaAux, betaAux;
-	float rAux;
-
-	deltaX =  - xx + startX;
-	deltaY =    yy - startY;
-
-	// left mouse button: move camera
 	if (tracking == 1) {
+		if (activeCam == 2) {
+			// --- NEW: mouse orbiting for chase cam ---
+			cam2_yawOffset += deltaX * 0.2f;   // sensitivity
+			cam2_pitchOffset += -deltaY * 0.2f;
 
+			// clamp pitch so camera doesn’t flip
+			if (cam2_pitchOffset > 60.0f)  cam2_pitchOffset = 60.0f;
+			if (cam2_pitchOffset < -30.0f) cam2_pitchOffset = -30.0f;
 
-		alphaAux = alpha + deltaX;
-		betaAux = beta + deltaY;
+			startX = xx;
+			startY = yy;
+		}
+		else {
+			// --- OLD: free orbit cameras (0 or 1) ---
+			float alphaAux = alpha - (xx - startX);
+			float betaAux = beta + (yy - startY);
+			if (betaAux > 85.0f) betaAux = 85.0f;
+			if (betaAux < -85.0f) betaAux = -85.0f;
 
-		if (betaAux > 85.0f)
-			betaAux = 85.0f;
-		else if (betaAux < -85.0f)
-			betaAux = -85.0f;
-		rAux = r;
+			float rAux = r;
+			float camXtemp = rAux * sin(alphaAux * 3.14f / 180.0f) * cos(betaAux * 3.14f / 180.0f);
+			float camZtemp = rAux * cos(alphaAux * 3.14f / 180.0f) * cos(betaAux * 3.14f / 180.0f);
+			float camYtemp = rAux * sin(betaAux * 3.14f / 180.0f);
+
+			camX = camXtemp;
+			camY = camYtemp;
+			camZ = camZtemp;
+
+			cams[activeCam].pos[0] = camX;
+			cams[activeCam].pos[1] = camY;
+			cams[activeCam].pos[2] = camZ;
+
+			cams[activeCam].target[0] = 0.0f;
+			cams[activeCam].target[1] = 0.0f;
+			cams[activeCam].target[2] = 0.0f;
+		}
 	}
-	// right mouse button: zoom
+	// right mouse button zoom (unchanged)
 	else if (tracking == 2) {
-
-		alphaAux = alpha;
-		betaAux = beta;
-		rAux = r + (deltaY * 0.01f);
-		if (rAux < 0.1f)
-			rAux = 0.1f;
+		r += (yy - startY) * 0.01f;
+		if (r < 0.1f) r = 0.1f;
 	}
-
-	//camX = rAux * sin(alphaAux * 3.14f / 180.0f) * cos(betaAux * 3.14f / 180.0f);
-	//camZ = rAux * cos(alphaAux * 3.14f / 180.0f) * cos(betaAux * 3.14f / 180.0f);
-	//camY = rAux *   						       sin(betaAux * 3.14f / 180.0f);
-
-	// spherical camera math
-	float camXtemp = rAux * sin(alphaAux * 3.14f / 180.0f) * cos(betaAux * 3.14f / 180.0f);
-	float camZtemp = rAux * cos(alphaAux * 3.14f / 180.0f) * cos(betaAux * 3.14f / 180.0f);
-	float camYtemp = rAux * sin(betaAux * 3.14f / 180.0f);
-
-	/*if (activeCam == 2) {
-		// follow drone
-		float distance = 20.0f; // behind the drone
-		float height = 10.0f; // camera height above drone
-		float targetHeight = 2.0f; // where camera looks relative to drone's center
-		float yawRad = drone.dirAngle * 3.14159f / 180.0f;
-
-		// Camera position behind and above the drone
-		cams[2].pos[0] = drone.pos[0] - sin(yawRad) * distance;
-		cams[2].pos[1] = drone.pos[1] + height;
-		cams[2].pos[2] = drone.pos[2] - cos(yawRad) * distance;
-
-		// Camera target slightly above drone base (so it looks forward, not down)
-		cams[2].target[0] = drone.pos[0];
-		cams[2].target[1] = drone.pos[1] + targetHeight;
-		cams[2].target[2] = drone.pos[2];
-	}*/
-	
-		// free orbit cameras (0 or 1)
-		camX = camXtemp;
-		camY = camYtemp;
-		camZ = camZtemp;
-
-		cams[activeCam].pos[0] = camX;
-		cams[activeCam].pos[1] = camY;
-		cams[activeCam].pos[2] = camZ;
-
-		cams[activeCam].target[0] = 0.0f;
-		cams[activeCam].target[1] = 0.0f;
-		cams[activeCam].target[2] = 0.0f;
-	
-
-
-//  uncomment this if not using an idle or refresh func
-//	glutPostRedisplay();
 }
 
 
@@ -1201,10 +1194,10 @@ void buildScene()
 	{
 		// Glassy cube
 		MyMesh glass = createCube();
-		float amb[] = { 0.05f, 0.08f, 0.10f, 0.55f };   // a ~ 0.55
-		float diff[] = { 0.20f, 0.45f, 0.65f, 0.55f };
-		float spec[] = { 0.80f, 0.90f, 1.00f, 0.55f };
-		float emis[] = { 0.00f, 0.00f, 0.00f, 0.55f };
+		float amb[] = { 0.05f, 0.08f, 0.10f, 0.6f };   // a ~ 0.55
+		float diff[] = { 0.20f, 0.45f, 0.65f, 0.6f };
+		float spec[] = { 0.80f, 0.90f, 1.00f, 0.6f };
+		float emis[] = { 0.00f, 0.00f, 0.00f, 0.6f };
 		glass.mat.shininess = 120.0f; glass.mat.texCount = 0;
 		memcpy(glass.mat.ambient, amb, 4 * sizeof(float));
 		memcpy(glass.mat.diffuse, diff, 4 * sizeof(float));
@@ -1218,10 +1211,10 @@ void buildScene()
 
 		// Glassy cylinder
 		MyMesh glass = createCylinder(1.5f, 0.5f, 20);
-		float amb[] = { 0.05f, 0.08f, 0.10f, 0.55f };
-		float diff[] = { 0.20f, 0.45f, 0.65f, 0.55f };
-		float spec[] = { 0.80f, 0.90f, 1.00f, 0.55f };
-		float emis[] = { 0.00f, 0.00f, 0.00f, 0.55f };
+		float amb[] = { 0.05f, 0.08f, 0.10f, 0.6f };
+		float diff[] = { 0.20f, 0.45f, 0.65f, 0.6f };
+		float spec[] = { 0.80f, 0.90f, 1.00f, 0.6f };
+		float emis[] = { 0.00f, 0.00f, 0.00f, 0.6f };
 		glass.mat.shininess = 120.0f; glass.mat.texCount = 0;
 		memcpy(glass.mat.ambient, amb, 4 * sizeof(float));
 		memcpy(glass.mat.diffuse, diff, 4 * sizeof(float));
@@ -1383,6 +1376,8 @@ int main(int argc, char **argv) {
 //	Mouse and Keyboard Callbacks
 	glutKeyboardFunc(keyboardDown);
 	glutKeyboardUpFunc(keyboardUp);
+	glutSpecialFunc(specialDown);
+	glutSpecialUpFunc(specialUp);
 	glutMouseFunc(processMouseButtons);
 	glutMotionFunc(processMouseMotion);
 	glutMouseWheelFunc ( mouseWheel ) ;

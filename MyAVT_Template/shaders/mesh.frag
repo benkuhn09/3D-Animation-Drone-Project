@@ -117,8 +117,6 @@ void main() {
         if (spotLights[i].on) {
             vec3 l = normalize(spotLights[i].position - DataIn.fragPos);
             float spotCos = dot(-l, normalize(spotLights[i].direction));
-            // The teammate used a spot cutoff check (spotCos > spotCosCutOff), 
-            // but spotCosCutOff uniform wasn't in their fragment. We'll keep a reasonable cutoff:
             float spotCutoff = 0.85; // tweak from CPU if needed
             if (spotCos > spotCutoff) {
                 float dist = length(spotLights[i].position - DataIn.fragPos);
