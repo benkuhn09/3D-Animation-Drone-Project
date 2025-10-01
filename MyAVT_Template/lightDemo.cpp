@@ -463,7 +463,7 @@ void updateDrone(float deltaTime) {
 
 	// compute lateral velocity from roll (banking effect)
 	float rollInfluence = sinf(rollRad);
-	float lateralSpeed = rollInfluence * drone.maxSpeed * 0.5f;
+	float lateralSpeed = -rollInfluence * drone.maxSpeed * 0.5f;
 	// ^ adjust 0.5f scaling factor for strength of side-slip
 
 	// update position (forward + vertical + lateral)
@@ -540,8 +540,8 @@ void animate(float deltaTime) {
 	}
 
 	// --- Roll (arrow left/right) ---
-	if (specialKeys[GLUT_KEY_LEFT])  drone.roll += drone.pitchRate * deltaTime;
-	if (specialKeys[GLUT_KEY_RIGHT]) drone.roll -= drone.pitchRate * deltaTime;
+	if (specialKeys[GLUT_KEY_LEFT])  drone.roll -= drone.pitchRate * deltaTime;
+	if (specialKeys[GLUT_KEY_RIGHT]) drone.roll += drone.pitchRate * deltaTime;
 
 	// Apply some damping to avoid infinite drift when keys released
 	drone.vSpeed *= 0.98f;
