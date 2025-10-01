@@ -189,6 +189,8 @@ float nextSpeedBump = 5.0f;  // seconds
 // for later
 int meshFlyingObject = -1;
 
+int glassCubeMeshID = -1;
+int glassCylMeshID = -1;
 
 static inline float frand(float a, float b) {
 	return a + (b - a) * (rand() / (float)RAND_MAX);
@@ -323,6 +325,9 @@ void initCity() {
 			city[i][j].height = minHeight + t * (maxHeight - minHeight);
 			city[i][j].meshID = (rand() % 2 == 0) ? 1 : 3;  // cube or cylinder
 			city[i][j].texMode = 2 + (rand() % 4);
+			if (city[i][j].texMode == 4) { // skyscraper_glass.jpg
+				city[i][j].meshID = (city[i][j].meshID == 3 ? glassCubeMeshID:glassCylMeshID);
+			}
 			/* initializing offsets for building. used for collision. */
 			buildingOffset[i][j][0] = 0.0f;
 			buildingOffset[i][j][1] = 0.0f;
@@ -654,63 +659,83 @@ void renderSim(void) {
 	int objId = 1; //id of the current object mesh - to be used as index of the array Mymeshes in the renderer object
 	for (int i = 0; i < GRID_SIZE; ++i) {
 		for (int j = 0; j < GRID_SIZE; ++j) {
+			int mID = city[i][j].meshID;
+			if (mID == glassCubeMeshID || mID == glassCylMeshID) continue; // skip glass here
+
 			mu.pushMatrix(gmu::MODEL);
-
-			//mu.translate(gmu::MODEL, (float)i * 5.0f, 0.0f, (float)j * 5.0f);
-			// move grid so that (0,0) starts at top-left of floor
-
-			/*mu.translate(gmu::MODEL,
-				xOffset + (float)i * spacing,
-				0.0f,
-				zOffset + (float)j * spacing);*/
-
+			// same translate as before:
 			mu.translate(gmu::MODEL,
 				xOffset + (float)i * spacing + buildingOffset[i][j][0],
 				0.0f + buildingOffset[i][j][1],
 				zOffset + (float)j * spacing + buildingOffset[i][j][2]);
 
-			
-			//retrives height from cityInit
 			float height = city[i][j].height;
-			
-			
-			//mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
 
-			/*if (city[i][j].meshID == 3) {
-				mu.translate(gmu::MODEL, 0.0f, 0.5f, 0.0f);
-			}*/
-
-			//mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
-
-			if (city[i][j].meshID == 3) {
-				// first scale
+			// same cube/cylinder transform (handle cylinder lift)
+			if (mID == 3) { // cylinder original index
 				mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
-				// then translate up by 0.5 in *scaled units* (i.e., after scaling the cylinder)
-				mu.translate(gmu::MODEL, 0.0f, 0.5f, 0.0f);  // 0.5 *after scale ensures bottom is at 0
+				mu.translate(gmu::MODEL, 0.0f, 0.5f, 0.0f);
 			}
 			else {
-				// cubes: just scale
 				mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
 			}
-
 
 			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 			mu.computeNormalMatrix3x3();
 
-			//data.meshID = objId;
-			//data.meshID = (rand() % 2 == 0) ? 1 : 3;
-			data.meshID = city[i][j].meshID;
-			data.texMode = city[i][j].texMode;   //0:no texturing; 1:modulate diffuse color with texel color; 2:diffuse color is replaced by texel color; 3: multitexturing
-			data.vm = mu.get(gmu::VIEW_MODEL),
+			data.meshID = mID;
+			data.texMode = city[i][j].texMode;
+			data.vm = mu.get(gmu::VIEW_MODEL);
 			data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 			data.normal = mu.getNormalMatrix();
 			renderer.renderMesh(data);
 
 			mu.popMatrix(gmu::MODEL);
-			//if (objId == 3) objId = 1;
-			//else objId++;
 		}
 	}
+	// ----- TRANSPARENT BUILDINGS -----
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE); // keep depth test ON, but don't write depth
+
+	for (int i = 0; i < GRID_SIZE; ++i) {
+		for (int j = 0; j < GRID_SIZE; ++j) {
+			int mID = city[i][j].meshID;
+			if (mID != glassCubeMeshID && mID != glassCylMeshID) continue; // only glass here
+
+			mu.pushMatrix(gmu::MODEL);
+			mu.translate(gmu::MODEL,
+				xOffset + (float)i * spacing + buildingOffset[i][j][0],
+				0.0f + buildingOffset[i][j][1],
+				zOffset + (float)j * spacing + buildingOffset[i][j][2]);
+
+			float height = city[i][j].height;
+
+			// same transforms; handle the glass cylinder like the original cylinder
+			if (mID == glassCylMeshID) {
+				mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
+				mu.translate(gmu::MODEL, 0.0f, 0.5f, 0.0f);
+			}
+			else {
+				mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
+			}
+
+			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+			mu.computeNormalMatrix3x3();
+
+			data.meshID = mID;
+			data.texMode = city[i][j].texMode; // any texMode still works; alpha comes from mat.a (and tex a if PNG/TGA)
+			data.vm = mu.get(gmu::VIEW_MODEL);
+			data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+			data.normal = mu.getNormalMatrix();
+			renderer.renderMesh(data);
+
+			mu.popMatrix(gmu::MODEL);
+		}
+	}
+
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
 
 	// drone rendering
 	float droneScale = 1.0f;
@@ -1044,7 +1069,39 @@ void buildScene()
 	amesh.mat.shininess = shininess;
 	amesh.mat.texCount = texcount;
 	renderer.myMeshes.push_back(amesh);
+	{
+		// Glassy cube
+		MyMesh glass = createCube();
+		float amb[] = { 0.05f, 0.08f, 0.10f, 0.55f };   // a ~ 0.55
+		float diff[] = { 0.20f, 0.45f, 0.65f, 0.55f };
+		float spec[] = { 0.80f, 0.90f, 1.00f, 0.55f };
+		float emis[] = { 0.00f, 0.00f, 0.00f, 0.55f };
+		glass.mat.shininess = 120.0f; glass.mat.texCount = 0;
+		memcpy(glass.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(glass.mat.diffuse, diff, 4 * sizeof(float));
+		memcpy(glass.mat.specular, spec, 4 * sizeof(float));
+		memcpy(glass.mat.emissive, emis, 4 * sizeof(float));
+		renderer.myMeshes.push_back(glass);
+		glassCubeMeshID = (int)renderer.myMeshes.size() - 1;
+	}
 
+	{
+
+		// Glassy cylinder
+		MyMesh glass = createCylinder(1.5f, 0.5f, 20);
+		float amb[] = { 0.05f, 0.08f, 0.10f, 0.55f };
+		float diff[] = { 0.20f, 0.45f, 0.65f, 0.55f };
+		float spec[] = { 0.80f, 0.90f, 1.00f, 0.55f };
+		float emis[] = { 0.00f, 0.00f, 0.00f, 0.55f };
+		glass.mat.shininess = 120.0f; glass.mat.texCount = 0;
+		memcpy(glass.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(glass.mat.diffuse, diff, 4 * sizeof(float));
+		memcpy(glass.mat.specular, spec, 4 * sizeof(float));
+		memcpy(glass.mat.emissive, emis, 4 * sizeof(float));
+		renderer.myMeshes.push_back(glass);
+		glassCylMeshID = (int)renderer.myMeshes.size() - 1;
+
+	}
 	// create geometry and VAO of the cone
 	//amesh = createCone(2.5f, 1.2f, 20);
 	//memcpy(amesh.mat.ambient, amb, 4 * sizeof(float));

@@ -144,35 +144,43 @@ void main() {
     // ---------- Texture modes (preserved, but use "lighting" for shading) ----------
     vec4 texel, texel1;
     vec4 baseColor;
+    float alpha = mat.diffuse.a;
 
     if (texMode == 0) {
         // no texturing -> use lighting color and material emissive if you want
         baseColor = vec4(lighting, 1.0);
+        alpha *= texel.a;
     }
     else if (texMode == 1) { // modulate diffuse with texel
         texel = texture(texmap2, DataIn.tex_coord); // lightwood
         baseColor = vec4(lighting * texel.rgb, 1.0);
+        alpha *= texel.a;
     }
     else if (texMode == 2) {
         texel = texture(texmap5, DataIn.tex_coord); // skyscraper_night
         baseColor = vec4(lighting * texel.rgb, 1.0);
+        alpha *= texel.a;
     }
     else if (texMode == 3) {
         texel = texture(texmap6, DataIn.tex_coord); // skyscraper_plain
         baseColor = vec4(lighting * texel.rgb, 1.0);
+        alpha *= texel.a;
     }
     else if (texMode == 4) {
         texel = texture(texmap7, DataIn.tex_coord); // skyscraper_glass
         baseColor = vec4(lighting * texel.rgb, 1.0);
+        alpha *= texel.a;
     }
     else if (texMode == 5) {
         texel = texture(texmap8, DataIn.tex_coord); // skyscraper_residential
         baseColor = vec4(lighting * texel.rgb, 1.0);
+        alpha *= texel.a;
     }
     else { // multitexture fallback: combine texmap3 & texmap4 like original
         texel = texture(texmap3, DataIn.tex_coord);
         texel1 = texture(texmap4, DataIn.tex_coord);
         baseColor = vec4(lighting * (texel.rgb * texel1.rgb), 1.0);
+        alpha *= texel.a;
     }
 
     // ---------- Fog (preserve your existing fog system) ----------
@@ -187,5 +195,5 @@ void main() {
     fogAmount = clamp(fogAmount, 0.0, 1.0);
 
     vec3 finalColor = mix(fogColor, baseColor.rgb, fogAmount);
-    colorOut = vec4(finalColor, 1.0);
+    colorOut = vec4(finalColor, alpha);
 }
