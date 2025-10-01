@@ -101,18 +101,9 @@ float pointLightColor[NUMBER_POINT_LIGHTS][3] = {
 	{0.0f, 1.0f, 1.0f}  // cyan
 };
 
+
 bool pointLightsOn = true;
 float pointLightEye[NUMBER_POINT_LIGHTS][4];
-
-float spotLightPos[NUMBER_SPOT_LIGHTS][4] = {
-	{ -1.0f, 0.0f, 1.0f, 1.0f }, // left
-	{  1.0f, 0.0f, 1.0f, 1.0f }  // right
-};
-
-float spotLightDir[NUMBER_SPOT_LIGHTS][4] = {
-	{ 0.4f, -0.5f,  1.0f, 0.0f },  // left
-	{-0.4f, -0.5f,  1.0f, 0.0f }   // right
-};
 
 bool spotLightsOn = true;
 float spotCutOff = 0.93f;
@@ -595,13 +586,54 @@ void renderSim(void) {
 	renderer.setPointLights(pointLightEye, pointLightColor, pointLightsOn);
 
 	// Spotlights
+	
+	float yawRadians = drone.dirAngle * 3.14159f / 180.0f;
+	float pitchRad = drone.pitch * 3.14159f / 180.0f;
+
+	float fwd[3] = {
+	cosf(pitchRad) * sinf(yawRadians),
+	sinf(pitchRad),
+	cosf(pitchRad) * cosf(yawRadians)
+	};
+
+	float right[3] = { cosf(yawRadians), 0.0f, -sinf(yawRadians) }; // perp to forward
+	const float lateralOffset = 1.0f;  // left/right separation
+	const float verticalOffset = -0.5f;  // a bit below the center
+	float spotWorldPos[NUMBER_SPOT_LIGHTS][4];
+	float spotWorldDir[NUMBER_SPOT_LIGHTS][4];
+
+	// left
+	spotWorldPos[0][0] = drone.pos[0] - right[0] * lateralOffset;
+	spotWorldPos[0][1] = drone.pos[1] + verticalOffset;
+	spotWorldPos[0][2] = drone.pos[2] - right[2] * lateralOffset;
+	spotWorldPos[0][3] = 1.0f;
+	spotWorldDir[0][0] = fwd[0];
+	spotWorldDir[0][1] = fwd[1];
+	spotWorldDir[0][2] = fwd[2];
+	spotWorldDir[0][3] = 0.0f;
+
+	// right
+	spotWorldPos[1][0] = drone.pos[0] + right[0] * lateralOffset;
+	spotWorldPos[1][1] = drone.pos[1] + verticalOffset;
+	spotWorldPos[1][2] = drone.pos[2] + right[2] * lateralOffset;
+	spotWorldPos[1][3] = 1.0f;
+	spotWorldDir[1][0] = fwd[0];
+	spotWorldDir[1][1] = fwd[1];
+	spotWorldDir[1][2] = fwd[2];
+	spotWorldDir[1][3] = 0.0f;
+
 	float spotEyePos[NUMBER_SPOT_LIGHTS][4];
 	float spotEyeDir[NUMBER_SPOT_LIGHTS][4];
 
 	for (int i = 0; i < NUMBER_SPOT_LIGHTS; ++i) {
-		mu.multMatrixPoint(gmu::VIEW, spotLightPos[i], spotEyePos[i]);
-		mu.multMatrixPoint(gmu::VIEW, spotLightDir[i], spotEyeDir[i]);
+		// transform position (as a point: w=1)
+		mu.multMatrixPoint(gmu::VIEW, spotWorldPos[i], spotEyePos[i]);
 
+		// transform direction (as a vector: w=0)
+		float dir4[4] = { spotWorldDir[i][0], spotWorldDir[i][1], spotWorldDir[i][2], 0.0f };
+		mu.multMatrixPoint(gmu::VIEW, dir4, spotEyeDir[i]);
+
+		// normalize result
 		float len = sqrtf(spotEyeDir[i][0] * spotEyeDir[i][0] +
 			spotEyeDir[i][1] * spotEyeDir[i][1] +
 			spotEyeDir[i][2] * spotEyeDir[i][2]);
@@ -612,10 +644,11 @@ void renderSim(void) {
 		}
 	}
 
-	float spotColor[NUMBER_SPOT_LIGHTS][3];
-	for (int i = 0; i < NUMBER_SPOT_LIGHTS; ++i) {
-		spotColor[i][0] = 3.0f; spotColor[i][1] = 3.0f; spotColor[i][2] = 3.0f;
-	}
+	float spotColor[NUMBER_SPOT_LIGHTS][3] = {
+	{3.0f, 3.0f, 3.0f},
+	{3.0f, 3.0f, 3.0f}
+	};
+
 	renderer.setSpotLights(spotEyePos, spotEyeDir, spotColor, spotLightsOn, spotCutOff);
 
 
@@ -1012,12 +1045,14 @@ void buildScene()
 	float spec[] = { 0.8f, 0.8f, 0.8f, 1.0f };
 
 	float amb1[] = { 0.3f, 0.0f, 0.0f, 1.0f };
-	float diff1[] = { 0.8f, 0.1f, 0.1f, 1.0f };
+	float diff1[] = { 0.8f, 0.8f, 0.8f, 1.0f };
 	float spec1[] = { 0.3f, 0.3f, 0.3f, 1.0f };
 
 	float emissive[] = { 0.0f, 0.0f, 0.0f, 1.0f };
 	float shininess = 100.0f;
 	int texcount = 0;
+
+	float ambNeutral[] = { 0.20f, 0.20f, 0.20f, 1.0f };
 
 	// create geometry and VAO of the floor quad
 	amesh = createQuad(45.0f, 45.0f);
@@ -1032,7 +1067,7 @@ void buildScene()
 	
 	// create geometry and VAO of the cube
 	amesh = createCube();
-	memcpy(amesh.mat.ambient, amb1, 4 * sizeof(float));
+	memcpy(amesh.mat.ambient, ambNeutral, 4 * sizeof(float));
 	memcpy(amesh.mat.diffuse, diff1, 4 * sizeof(float));
 	memcpy(amesh.mat.specular, spec1, 4 * sizeof(float));
 	memcpy(amesh.mat.emissive, emissive, 4 * sizeof(float));
@@ -1062,7 +1097,7 @@ void buildScene()
 
 	// create geometry and VAO of the cylinder
 	amesh = createCylinder(1.5f, 0.5f, 20);
-	memcpy(amesh.mat.ambient, amb, 4 * sizeof(float));
+	memcpy(amesh.mat.ambient, ambNeutral, 4 * sizeof(float));
 	memcpy(amesh.mat.diffuse, diff, 4 * sizeof(float));
 	memcpy(amesh.mat.specular, spec, 4 * sizeof(float));
 	memcpy(amesh.mat.emissive, emissive, 4 * sizeof(float));

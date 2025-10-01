@@ -176,7 +176,7 @@ void main() {
         baseColor = vec4(lighting * texel.rgb, 1.0);
         alpha *= texel.a;
     }
-    else { // multitexture fallback: combine texmap3 & texmap4 like original
+    else { // fallback
         texel = texture(texmap3, DataIn.tex_coord);
         texel1 = texture(texmap4, DataIn.tex_coord);
         baseColor = vec4(lighting * (texel.rgb * texel1.rgb), 1.0);
