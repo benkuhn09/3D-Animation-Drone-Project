@@ -126,17 +126,27 @@ struct Drone {
 	float speed = 0.0f;   // horizontal speed scalar (units/sec)
 	float vSpeed = 0.0f;   // vertical speed (units/sec, positive = up)
 
-	// tuning parameters (optional)
+	// tuning parameters
 	float maxSpeed = 10.0f;
 	float maxVSpeed = 8.0f;
 	float turnRate = 90.0f;      // degrees/sec when turning (you can override per-key)
 	float pitchRate = 30.0f;     // degrees/sec when pitching
 	float size = 1.0f; // for bounding, in world units
+
+	float pitchVel = 0.0f;  // deg/s
+	float rollVel = 0.0f;  // deg/s
 };
 
 Drone drone;
 float cam2_yawOffset = 0.0f;   // horizontal orbit around drone
 float cam2_pitchOffset = 0.0f; // vertical orbit around drone
+
+// --- Attitude limits & dynamics (degrees-based) ---
+const float MAX_PITCH = 30.0f;   // how far the nose can tilt up/down
+const float MAX_ROLL = 35.0f;   // how far it can bank left/right
+const float ANG_INPUT_ACCEL = 160.0f;  // deg/s^2 injected while a key is held
+const float ANG_DAMP = 2.5f;    // 1/s   (angular friction)
+const float ANG_SPRING = 4.0f;    // 1/s^2 (auto-level pull to 0°)
 
 struct Building {
 	float height;
@@ -455,7 +465,7 @@ void updateDrone(float deltaTime) {
 	// forward direction (affected by yaw + pitch)
 	float dx = cosf(pitchRad) * sinf(yawRad);
 	float dz = cosf(pitchRad) * cosf(yawRad);
-	float dy = sinf(pitchRad);
+	float dy = 0;
 
 	// sideways vector (perpendicular to forward in XZ)
 	float sideX = cosf(yawRad);
@@ -463,7 +473,7 @@ void updateDrone(float deltaTime) {
 
 	// compute lateral velocity from roll (banking effect)
 	float rollInfluence = sinf(rollRad);
-	float lateralSpeed = -rollInfluence * drone.maxSpeed * 0.5f;
+	float lateralSpeed = -rollInfluence * drone.maxSpeed * 0.8;
 	// ^ adjust 0.5f scaling factor for strength of side-slip
 
 	// update position (forward + vertical + lateral)
@@ -531,23 +541,41 @@ void animate(float deltaTime) {
 
 	// --- Pitch (arrow up/down) ---
 	if (specialKeys[GLUT_KEY_UP]) {
-		drone.pitch += drone.pitchRate * deltaTime;
 		drone.speed = std::min(drone.speed + 0.2f, drone.maxSpeed); // accelerate forward
 	}
 	if (specialKeys[GLUT_KEY_DOWN]) {
-		drone.pitch -= drone.pitchRate * deltaTime;
 		drone.speed = std::max(drone.speed - 0.2f, -drone.maxSpeed * 0.5f); // allow some backward drift
 	}
+	// --- Attitude dynamics (pitch/roll) ---
+	float pitchAccel = 0.0f;
+	if (specialKeys[GLUT_KEY_UP])   pitchAccel += ANG_INPUT_ACCEL;
+	if (specialKeys[GLUT_KEY_DOWN]) pitchAccel -= ANG_INPUT_ACCEL;
 
-	// --- Roll (arrow left/right) ---
-	if (specialKeys[GLUT_KEY_LEFT])  drone.roll -= drone.pitchRate * deltaTime;
-	if (specialKeys[GLUT_KEY_RIGHT]) drone.roll += drone.pitchRate * deltaTime;
+	float rollAccel = 0.0f;
+	if (specialKeys[GLUT_KEY_RIGHT]) rollAccel += ANG_INPUT_ACCEL;
+	if (specialKeys[GLUT_KEY_LEFT])  rollAccel -= ANG_INPUT_ACCEL;
 
-	// Apply some damping to avoid infinite drift when keys released
+	// Damped spring back to level (adds coast + auto-level)
+	pitchAccel += -ANG_DAMP * drone.pitchVel - ANG_SPRING * drone.pitch;
+	rollAccel += -ANG_DAMP * drone.rollVel - ANG_SPRING * drone.roll;
+
+	// Integrate angular velocity and angle
+	drone.pitchVel += pitchAccel * deltaTime;
+	drone.rollVel += rollAccel * deltaTime;
+
+	drone.pitch += drone.pitchVel * deltaTime;
+	drone.roll += drone.rollVel * deltaTime;
+
+	// Clamp angles and prevent pushing further past the limit
+	if (drone.pitch > MAX_PITCH) { drone.pitch = MAX_PITCH; if (drone.pitchVel > 0) drone.pitchVel = 0; }
+	if (drone.pitch < -MAX_PITCH) { drone.pitch = -MAX_PITCH; if (drone.pitchVel < 0) drone.pitchVel = 0; }
+	if (drone.roll > MAX_ROLL) { drone.roll = MAX_ROLL;  if (drone.rollVel > 0) drone.rollVel = 0; }
+	if (drone.roll < -MAX_ROLL) { drone.roll = -MAX_ROLL;  if (drone.rollVel < 0) drone.rollVel = 0; }
+
+	// Mild linear speed damping so forward motion “glides” a bit
 	drone.vSpeed *= 0.98f;
-	drone.speed *= 0.98f;
+	drone.speed *= 0.995f;
 
-	// Update position with new controls
 	updateDrone(deltaTime);
 }
 
