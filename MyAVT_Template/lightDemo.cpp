@@ -530,8 +530,14 @@ void animate(float deltaTime) {
 	if (keys['s']) drone.vSpeed = std::max(drone.vSpeed - 0.2f, -drone.maxVSpeed);
 
 	// --- Pitch (arrow up/down) ---
-	if (specialKeys[GLUT_KEY_UP])    drone.pitch += drone.pitchRate * deltaTime;
-	if (specialKeys[GLUT_KEY_DOWN])  drone.pitch -= drone.pitchRate * deltaTime;
+	if (specialKeys[GLUT_KEY_UP]) {
+		drone.pitch += drone.pitchRate * deltaTime;
+		drone.speed = std::min(drone.speed + 0.2f, drone.maxSpeed); // accelerate forward
+	}
+	if (specialKeys[GLUT_KEY_DOWN]) {
+		drone.pitch -= drone.pitchRate * deltaTime;
+		drone.speed = std::max(drone.speed - 0.2f, -drone.maxSpeed * 0.5f); // allow some backward drift
+	}
 
 	// --- Roll (arrow left/right) ---
 	if (specialKeys[GLUT_KEY_LEFT])  drone.roll -= drone.pitchRate * deltaTime;
@@ -579,7 +585,7 @@ void renderSim(void) {
 	renderer.activateRenderMeshesShaderProg(); // use the required GLSL program to draw the meshes with illumination
 	int depthFog = 1; // 0 = z-based, 1 = radial
 	float fogColor[3] = { 0.5f, 0.5f, 0.6f }; // light gray-blue
-	float fogDensity = 0.04f;
+	float fogDensity = 0.03f;
 
 	if (fogEnabled) {
 		int depthFog = 1; // 0 = z-based, 1 = radial
