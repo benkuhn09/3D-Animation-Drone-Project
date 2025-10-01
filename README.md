@@ -1,3 +1,9 @@
+UPDATES FROM 01/10/25 LAB DISCUSSION/ASSESSMENT
+- AABB collision boxes now update and change through rotations for the drone and flying objects.
+- Angles of drone pitch and roll are now limited, so that the drone doesn't flip / behave strangely
+- When user releases an arrow key for pitch or roll, the drone glides and decelerates, and it flattens out in the air.
+- Increased ambient light for better visibility in low-light
+
 This project depicts a drone flying through a city.
 
 Controls:
