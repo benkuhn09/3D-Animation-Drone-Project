@@ -201,6 +201,9 @@ float pointLightEye[NUMBER_POINT_LIGHTS][4];
 bool spotLightsOn = true;
 float spotCutOff = 0.93f;
 
+//pause flag 
+bool paused = false;
+
 
 struct Camera {
 	float pos[3] = { 0.0f, 0.0f, 0.0f };
@@ -372,8 +375,10 @@ void refresh(int value)
 	float dt = now - last;
 	last = now;
 
-	updateFlyingObjects(dt, now);
-
+	if (!paused) {
+		updateFlyingObjects(dt, now);
+	}
+	
 	glutPostRedisplay();
 	glutTimerFunc(16, refresh, 0);
 }
@@ -737,7 +742,10 @@ void renderSim(void) {
 	float currentTime = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
 	float deltaTime = currentTime - lastTime;
 	lastTime = currentTime;
-	animate(deltaTime);
+
+	if (!paused) {
+		animate(deltaTime);
+	}
 
 	float distance = 20.0f; // how far behind
 	float height = 10.0f;  // how far above
@@ -1131,11 +1139,43 @@ void renderSim(void) {
 		mu.popMatrix(gmu::PROJECTION);
 		glDisable(GL_BLEND);
 		glEnable(GL_DEPTH_TEST);
+
+		if (paused) {
+			int textX = WinX / 2 - 100;
+			int textY = WinY / 2;
+
+			TextCommand pauseText = { "PAUSED", {textX, textY}, 1.2f };
+			pauseText.color[0] = 1.0f; // R
+			pauseText.color[1] = 0.0f; // G
+			pauseText.color[2] = 0.0f; // B
+			pauseText.color[3] = 1.0f; // A
+
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+			int m_viewport[4];
+			glGetIntegerv(GL_VIEWPORT, m_viewport);
+
+			mu.loadIdentity(gmu::MODEL);
+			mu.loadIdentity(gmu::VIEW);
+			mu.pushMatrix(gmu::PROJECTION);
+			mu.loadIdentity(gmu::PROJECTION);
+			mu.ortho(m_viewport[0], m_viewport[0] + m_viewport[2] - 1,
+				m_viewport[1], m_viewport[1] + m_viewport[3] - 1, -1, 1);
+			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+
+			pauseText.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+			renderer.renderText(pauseText);
+
+			mu.popMatrix(gmu::PROJECTION);
+			glDisable(GL_BLEND);
+		}
 		
 	}
 	
 	glutSwapBuffers();
 }
+
 
 // ------------------------------------------------------------
 //
@@ -1187,8 +1227,13 @@ void keyboardDown(unsigned char key, int x, int y) {
 		}
 		break;
 
+	case 'p':
+		paused = !paused; // toggle pause
+		break;
+
 	}
 }
+
 void keyboardUp(unsigned char key, int x, int y) {
 	keys[key] = false;
 }
