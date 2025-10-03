@@ -66,13 +66,6 @@ int startX, startY, tracking = 0;
 long myTime,timebase = 0,frame = 0;
 char s[32];
 
-//float lightPos[4] = {4.0f, 5.0f, 2.0f, 1.0f};
-//float lightPos[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-
-//Spotlight
-//bool spotlight_mode = false;
-//float coneDir[4] = { 0.0f, -0.0f, -1.0f, 0.0f };
-
 bool fontLoaded = false;
 
 // fog flag
@@ -83,8 +76,6 @@ float aspectRatio = 1.0f;
 bool debugDrawFlyingAABB = true;  // toggle with 'b'
 int  debugFlyIndex = 0;           // select which flying object, [0..NUM_FLYING_OBJECTS-1]
 int  wireCubeMeshID = -1;         // green wire cube used for drawing AABBs
-
-
 
 struct Mat4 {
 	float m[16]; // column-major
@@ -211,8 +202,8 @@ Camera cams[3];
 int activeCam = 0;
 
 struct Drone {
-	float pos[3] = { 0.0f, 15.0f, 0.0f }; // world position (x,y,z)
-	float dirAngle = 0.0f;   // yaw (degrees) — heading in the XZ plane
+	float pos[3] = { -30.0f, 15.0f, 0.0f }; // world position (x,y,z)
+	float dirAngle = 90.0f;   // yaw (degrees) — heading in the XZ plane
 	float pitch = 0.0f;   // nose up/down (degrees) — used to influence forward motion
 	float roll = 0.0f;   // roll (degrees) — optional for visuals
 	float speed = 0.0f;   // horizontal speed scalar (units/sec)
@@ -246,7 +237,7 @@ struct Building {
 	int texMode;
 };
 
-const int GRID_SIZE = 6;
+const int GRID_SIZE = 9;
 Building city[GRID_SIZE][GRID_SIZE];
 
 float buildingOffset[GRID_SIZE][GRID_SIZE][3];
@@ -266,14 +257,14 @@ struct FlyingObject {
 
 std::vector<FlyingObject> flyingObjects;
 
-const int   NUM_FLYING_OBJECTS = 8;
-const float SPAWN_RADIUS = 30.0f;  // birth ring radius (XZ)
-const float KILL_RADIUS = 45.0f;  // die when too far from center
+const int   NUM_FLYING_OBJECTS = 11;
+const float SPAWN_RADIUS = 45.0f;  // birth ring radius (XZ)
+const float KILL_RADIUS = 65.0f;  // die when too far from center
 const float MIN_Y = 0.0f;
 const float MAX_Y = 20.0f;
 
-const float MAX_XZ = 20.0f;
-const float MIN_XZ = -20.0f;
+const float MAX_XZ = 30.0f;
+const float MIN_XZ = -30.0f;
 
 
 const float BASE_SPEED = 20.0f;   // initial median speed
@@ -445,7 +436,7 @@ bool aabbIntersect(const float minA[3], const float maxA[3], const float minB[3]
 
 void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
 	const float spacing = 7.2f;
-	const float floorSize = 45.0f;
+	const float floorSize = 65.0f;
 	const float scaleX = 2.3f;
 	const float scaleZ = 2.3f;
 
@@ -592,10 +583,10 @@ bool findCollidingBuilding(const float dMin[3], const float dMax[3], int& outI, 
 }
 
 void resetDrone() {
-	drone.pos[0] = 0.0f;
+	drone.pos[0] = -30.0f;
 	drone.pos[1] = 15.0f;
 	drone.pos[2] = 0.0f;
-	drone.dirAngle = 0.0f;
+	drone.dirAngle = 90.0f;
 	drone.pitch = 0.0f;
 	drone.roll = 0.0f;
 	drone.speed = 0.0f;
@@ -646,7 +637,7 @@ void updateDrone(float deltaTime) {
 		drone.vSpeed = 0.0f;
 
 		const float spacing = 7.2f;
-		const float floorSize = 45.0f;
+		const float floorSize = 65.0f;
 		float xOffset = -floorSize / 2.0f + spacing / 2.0f;
 		float zOffset = -floorSize / 2.0f + spacing / 2.0f;
 
@@ -681,8 +672,8 @@ void updateDrone(float deltaTime) {
 
 void animate(float deltaTime) {
 	// --- Yaw control (A/D) ---
-	if (keys['a']) drone.dirAngle -= drone.turnRate * deltaTime;
-	if (keys['d']) drone.dirAngle += drone.turnRate * deltaTime;
+	if (keys['a']) drone.dirAngle += drone.turnRate * deltaTime;
+	if (keys['d']) drone.dirAngle -= drone.turnRate * deltaTime;
 
 	// --- Throttle (W/S) ---
 	if (keys['w']) drone.vSpeed = std::min(drone.vSpeed + 0.2f, drone.maxVSpeed);
@@ -912,7 +903,7 @@ void renderSim(void) {
 	mu.popMatrix(gmu::MODEL);
 
 	float spacing = 7.2f;
-	float floorSize = 45.0f;
+	float floorSize = 65.0f;
 	float xOffset = -floorSize / 2.0f + spacing / 2.0f;
 	float zOffset = -floorSize / 2.0f + spacing / 2.0f;
 
@@ -998,26 +989,6 @@ void renderSim(void) {
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
 
-	// drone rendering
-	/*float droneScale = 1.0f;
-
-	mu.pushMatrix(gmu::MODEL);
-	mu.translate(gmu::MODEL, drone.pos[0], drone.pos[1], drone.pos[2]);
-	mu.rotate(gmu::MODEL, drone.dirAngle, 0.0f, 1.0f, 0.0f);  // yaw rotation
-	mu.rotate(gmu::MODEL, drone.pitch, 1.0f, 0.0f, 0.0f);     // pitch rotation
-	mu.rotate(gmu::MODEL, drone.roll, 0.0f, 0.0f, 1.0f);      // roll rotation
-	mu.scale(gmu::MODEL, droneScale, droneScale, droneScale);
-
-	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-	mu.computeNormalMatrix3x3();
-
-	data.meshID = 1;  // cube mesh, for now
-	data.texMode = 0; //no texturing
-	data.vm = mu.get(gmu::VIEW_MODEL),
-	data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
-	data.normal = mu.getNormalMatrix();
-	renderer.renderMesh(data);
-	mu.popMatrix(gmu::MODEL);*/
 	// DRONE RENDERING
 	mu.pushMatrix(gmu::MODEL);
 	mu.translate(gmu::MODEL, drone.pos[0], drone.pos[1], drone.pos[2]);
@@ -1339,7 +1310,7 @@ void buildScene()
 	float ambNeutral[] = { 0.20f, 0.20f, 0.20f, 1.0f };
 
 	// create geometry and VAO of the floor quad
-	amesh = createQuad(45.0f, 45.0f);
+	amesh = createQuad(65.0f, 65.0f);
 	memcpy(amesh.mat.ambient, amb1, 4 * sizeof(float));
 	memcpy(amesh.mat.diffuse, diff1, 4 * sizeof(float));
 	memcpy(amesh.mat.specular, spec1, 4 * sizeof(float));
@@ -1515,8 +1486,8 @@ void buildScene()
 
 	// top-down perspective
 	cams[0].pos[0] = 0.0f;
-	cams[0].pos[1] = 50.0f;     // high above
-	cams[0].pos[2] = 0.01f;     // slight offset to avoid singularity
+	cams[0].pos[1] = drone.pos[1] + 50.0f;     // high above
+	cams[0].pos[2] = drone.pos[2] + 0.01f;     // slight offset to avoid singularity
 	cams[0].target[0] = 0.0f;
 	cams[0].target[1] = 0.0f;
 	cams[0].target[2] = 0.0f;
