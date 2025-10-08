@@ -195,7 +195,6 @@ float spotCutOff = 0.93f;
 //pause flag 
 bool paused = false;
 
-
 struct Camera {
 	float pos[3] = { 0.0f, 0.0f, 0.0f };
 	float target[3] = { 0.0f, 0.0f, 0.0f };
@@ -224,15 +223,14 @@ struct Drone {
 };
 
 Drone drone;
-float batteryLevel = 1.0f;      // 1.0 = full, 0.0 = empty
+float batteryLevel = 100.0f;      // 100.0 = full, 0.0 = empty
 int playerScore = 0;
 bool hasPackage = false;
 bool gameOver = false;
 
 // battery parameters
 const float BATTERY_DRAIN_RATE = 0.2f;  // proportional to throttle
-const float COLLISION_PENALTY = 0.20f;   // lose 20% battery per crash
-
+const float COLLISION_PENALTY = 20.0f;   // lose 20% battery per crash
 
 
 float cam2_yawOffset = 0.0f;   // horizontal orbit around drone
@@ -654,6 +652,7 @@ void updateDrone(float deltaTime) {
 		const float maxOffset = 1.0f;
 		buildingOffset[hitI][hitJ][0] = std::max(-maxOffset, std::min(maxOffset, buildingOffset[hitI][hitJ][0]));
 		buildingOffset[hitI][hitJ][2] = std::max(-maxOffset, std::min(maxOffset, buildingOffset[hitI][hitJ][2]));
+
 	}
 
 	for (auto& o : flyingObjects) {
@@ -664,6 +663,7 @@ void updateDrone(float deltaTime) {
 			break;
 		}
 	}
+
 	if (!gameOver) {
 		float throttle = std::abs(drone.vSpeed / drone.maxVSpeed);
 		batteryLevel -= BATTERY_DRAIN_RATE * throttle * deltaTime;
@@ -684,6 +684,7 @@ void updateDrone(float deltaTime) {
 			drone.vSpeed = 0.0f;
 		}
 	}
+
 }
 
 
@@ -740,6 +741,97 @@ void animate(float deltaTime) {
 	drone.speed *= 0.995f;
 
 	updateDrone(deltaTime);
+}
+
+void drawText2D(const std::string& msg, int x, int y, float scale,
+	float r = 1.0f, float g = 1.0f, float b = 1.0f, float a = 1.0f) {
+	if (!fontLoaded) return;
+
+	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	int viewport[4];
+	glGetIntegerv(GL_VIEWPORT, viewport);
+
+	mu.loadIdentity(gmu::MODEL);
+	mu.loadIdentity(gmu::VIEW);
+
+	mu.pushMatrix(gmu::PROJECTION);
+	mu.loadIdentity(gmu::PROJECTION);
+	mu.ortho(viewport[0], viewport[0] + viewport[2] - 1,
+		viewport[1], viewport[1] + viewport[3] - 1,
+		-1, 1);
+	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+
+	// Initialisation via liste, compatible avec ton TextCommand
+	TextCommand cmd = { msg.c_str(), {x, y}, scale };
+	cmd.color[0] = r;
+	cmd.color[1] = g;
+	cmd.color[2] = b;
+	cmd.color[3] = a;
+	cmd.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+
+	renderer.renderText(cmd);
+
+	mu.popMatrix(gmu::PROJECTION);
+
+	glDisable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+}
+
+
+void drawBatteryHUD(float batteryLevel, int x, int y, int width, int height) {
+	if (!fontLoaded) return;
+
+	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	int m_viewport[4];
+	glGetIntegerv(GL_VIEWPORT, m_viewport);
+
+	mu.loadIdentity(gmu::MODEL);
+	mu.loadIdentity(gmu::VIEW);
+	mu.pushMatrix(gmu::PROJECTION);
+	mu.loadIdentity(gmu::PROJECTION);
+	mu.ortho(m_viewport[0], m_viewport[0] + m_viewport[2] - 1,
+		m_viewport[1], m_viewport[1] + m_viewport[3] - 1,
+		-1, 1);
+	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+
+	// Normaliser batterie
+	float pct = batteryLevel / 100.0f;
+	if (pct < 0.0f) pct = 0.0f;
+	if (pct > 1.0f) pct = 1.0f;
+
+	// Couleur en fonction du niveau (vert -> rouge)
+	float r = 1.0f - pct;
+	float g = pct;
+	float b = 0.0f;
+
+	// Dessiner cadre blanc
+	glUseProgram(0);
+	glColor3f(1, 1, 1);
+	glBegin(GL_LINE_LOOP);
+	glVertex2i(x, y);
+	glVertex2i(x + width, y);
+	glVertex2i(x + width, y + height);
+	glVertex2i(x, y + height);
+	glEnd();
+
+	// Dessiner barre remplie
+	glColor3f(r, g, b);
+	glBegin(GL_QUADS);
+	glVertex2i(x, y);
+	glVertex2i(x + (int)(width * pct), y);
+	glVertex2i(x + (int)(width * pct), y + height);
+	glVertex2i(x, y + height);
+	glEnd();
+
+	mu.popMatrix(gmu::PROJECTION);
+	glDisable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
 }
 
 float lastTime = 0.0f;
@@ -1096,66 +1188,37 @@ void renderSim(void) {
 	//Each glyph quad texture needs just one byte color channel: 0 in background and 1 for the actual character pixels. Use it for alpha blending
 	//text to be rendered in last place to be in front of everything
 	
-
-	if(fontLoaded) {
-		glDisable(GL_DEPTH_TEST);
-		TextCommand textCmd = { "2025 Drone Project", {100, 200}, 0.5 };
-		//the glyph contains transparent background colors and non-transparent for the actual character pixels. So we use the blending
-		glEnable(GL_BLEND);  
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		int m_viewport[4];
-		glGetIntegerv(GL_VIEWPORT, m_viewport);
-
-		//viewer at origin looking down at  negative z direction
-
-		mu.loadIdentity(gmu::MODEL);
-		mu.loadIdentity(gmu::VIEW);
-		mu.pushMatrix(gmu::PROJECTION);
-		mu.loadIdentity(gmu::PROJECTION);
-		mu.ortho(m_viewport[0], m_viewport[0] + m_viewport[2] - 1, m_viewport[1], m_viewport[1] + m_viewport[3] - 1, -1, 1);
-		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-		textCmd.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
-		renderer.renderText(textCmd);
-		mu.popMatrix(gmu::PROJECTION);
-		glDisable(GL_BLEND);
-		glEnable(GL_DEPTH_TEST);
-
-		if (paused) {
-			int textX = WinX / 2 - 100;
-			int textY = WinY / 2;
-
-			TextCommand pauseText = { "PAUSED", {textX, textY}, 1.2f };
-			pauseText.color[0] = 1.0f; // R
-			pauseText.color[1] = 0.0f; // G
-			pauseText.color[2] = 0.0f; // B
-			pauseText.color[3] = 1.0f; // A
-
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-			int m_viewport[4];
-			glGetIntegerv(GL_VIEWPORT, m_viewport);
-
-			mu.loadIdentity(gmu::MODEL);
-			mu.loadIdentity(gmu::VIEW);
-			mu.pushMatrix(gmu::PROJECTION);
-			mu.loadIdentity(gmu::PROJECTION);
-			mu.ortho(m_viewport[0], m_viewport[0] + m_viewport[2] - 1,
-				m_viewport[1], m_viewport[1] + m_viewport[3] - 1, -1, 1);
-			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-
-			pauseText.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
-			renderer.renderText(pauseText);
-
-			mu.popMatrix(gmu::PROJECTION);
-			glDisable(GL_BLEND);
-		}
-		
+	if (batteryLevel <= 0.0f && !gameOver) {
+		gameOver = true;
 	}
 	
+	drawText2D("2025 Drone Project", 100, 200, 0.5f, 1.0f, 1.0f, 1.0f);
+
+	if (paused) {
+		int textX = WinX / 2 - 100;
+		int textY = WinY / 2;
+		drawText2D("PAUSED", textX, textY, 1.2f, 1.0f, 0.0f, 0.0f);
+	}
+
+	// Texte batterie en haut-gauche
+	int vp[4];
+	glGetIntegerv(GL_VIEWPORT, vp);
+	int hudY = vp[3] - 10;
+
+	drawText2D("Battery", 20, hudY + 5, 0.6f, 1, 1, 1);
+	drawBatteryHUD(batteryLevel, 90, hudY, 200, 20);
+	drawText2D(std::to_string((int)batteryLevel) + "%", 330, hudY + 5, 0.6f, 1, 1, 1);
+
+	// Game Over screen
+	if (gameOver) {
+		int textX = WinX / 2 - 180;
+		int textY = WinY / 2;
+		drawText2D("GAME OVER", textX, textY, 1.5f, 1.0f, 0.0f, 0.0f);
+		drawText2D("Press R to restart", textX - 40, textY - 60, 0.8f, 1.0f, 1.0f, 1.0f);
+	}
+
 	glutSwapBuffers();
 }
-
 
 // ------------------------------------------------------------
 //
@@ -1182,12 +1245,12 @@ void keyboardDown(unsigned char key, int x, int y) {
 			: "Spot light disabled. Point light enabled\n");
 		break;*/
 
-	case 'r':
+	/*case 'r':
 		alpha = 57.0f; beta = 18.0f; r = 45.0f;
 		camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
 		camZ = r * cos(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
 		camY = r * sin(beta * 3.14f / 180.0f);
-		break;
+		break;*/
 
 	case 'm': glEnable(GL_MULTISAMPLE); break;
 	case 'n': directionalLightOn = !directionalLightOn; break;
@@ -1210,6 +1273,15 @@ void keyboardDown(unsigned char key, int x, int y) {
 	case 'p':
 		paused = !paused; // toggle pause
 		break;
+
+	case 'r':
+		if (gameOver) {
+			resetDrone();           
+			batteryLevel = 100.0f;
+			gameOver = false;
+		}
+		break;
+
 
 	}
 }
