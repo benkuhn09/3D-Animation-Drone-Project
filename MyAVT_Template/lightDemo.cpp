@@ -235,7 +235,14 @@ const float COLLISION_PENALTY = 20.0f;   // lose 20% battery per crash
 float lastCollisionTime = -1.0f;  
 const float collisionCooldown = 1.0f; // 1 second delay between two collision penalties
 
+struct Package {
+	int i, j;        // which building it's on (grid indices)
+	float pos[3];    // world position (x, y, z)
+	bool active;     // true if visible
+};
 
+Package package;
+int packageMeshID = -1;
 
 float cam2_yawOffset = 0.0f;   // horizontal orbit around drone
 float cam2_pitchOffset = 0.0f; // vertical orbit around drone
@@ -255,8 +262,9 @@ struct Building {
 
 const int GRID_SIZE = 9;
 Building city[GRID_SIZE][GRID_SIZE];
-
 float buildingOffset[GRID_SIZE][GRID_SIZE][3];
+int beamMeshID = -1;
+
 
 struct FlyingObject {
 	float pos[3];   // world position
@@ -468,6 +476,19 @@ void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
 	}
 }
 
+void spawnPackage() {
+	package.i = rand() % GRID_SIZE;
+	package.j = rand() % GRID_SIZE;
+
+	float bMin[3], bMax[3];
+	computeBuildingAABB(package.i, package.j, bMin, bMax);
+
+	// place package centered on roof
+	package.pos[0] = (bMin[0] + bMax[0]) / 2.0f;
+	package.pos[1] = bMax[1] + 0.3f; // slightly above roof
+	package.pos[2] = (bMin[2] + bMax[2]) / 2.0f;
+	package.active = true;
+}
 
 void computeDroneAABB(const Drone& drone, float outMin[3], float outMax[3]) {
 	// shapes in local space
@@ -1111,6 +1132,57 @@ void renderSim(void) {
 
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
+	
+	// render package
+	if (package.active && packageMeshID >= 0) {
+		mu.pushMatrix(gmu::MODEL);
+
+		// Move to package position
+		mu.translate(gmu::MODEL, package.pos[0], package.pos[1], package.pos[2]);
+
+		// Make it small and centered (0.5 so it sits nicely on roof)
+		mu.translate(gmu::MODEL, -0.5f, 0.0f, -0.5f);
+		mu.scale(gmu::MODEL, 0.7f, 0.7f, 0.7f);
+
+		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+		mu.computeNormalMatrix3x3();
+
+		data.meshID = packageMeshID;
+		data.texMode = 0;
+		data.vm = mu.get(gmu::VIEW_MODEL);
+		data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+		data.normal = mu.getNormalMatrix();
+
+		renderer.renderMesh(data);
+
+		mu.popMatrix(gmu::MODEL);
+	}
+
+	// Render glowing beam above package building
+	if (package.active && beamMeshID >= 0) {
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+		glDepthMask(GL_FALSE);
+
+		mu.pushMatrix(gmu::MODEL);
+		mu.translate(gmu::MODEL, package.pos[0], package.pos[1] + 40.0f, package.pos[2]); // center vertically
+		mu.scale(gmu::MODEL, 2.0f, 40.0f, 2.0f);
+		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+		mu.computeNormalMatrix3x3();
+
+		data.meshID = beamMeshID;
+		data.texMode = 0;
+		data.vm = mu.get(gmu::VIEW_MODEL);
+		data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+		data.normal = mu.getNormalMatrix();
+
+		renderer.renderMesh(data);
+		mu.popMatrix(gmu::MODEL);
+
+		glDepthMask(GL_TRUE);
+		glDisable(GL_BLEND);
+	}
+
 
 	// DRONE RENDERING
 	mu.pushMatrix(gmu::MODEL);
@@ -1594,6 +1666,7 @@ void buildScene()
 	srand(time(NULL));  // different city each run
 	initCity();         // fill city grid with random data
 
+	spawnPackage();
 
 	// set the camera position based on its spherical coordinates
 	camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
@@ -1642,6 +1715,37 @@ void buildScene()
 		memcpy(mob.mat.emissive, emis, 4 * sizeof(float));
 		renderer.myMeshes.push_back(mob);
 		meshFlyingObject = (int)renderer.myMeshes.size() - 1;
+	}
+
+	{
+		MyMesh pkg = createCube();
+		float amb[] = { 0.3f, 0.3f, 0.0f, 1.0f }; // yellowish
+		float diff[] = { 0.9f, 0.8f, 0.1f, 1.0f };
+		float spec[] = { 0.8f, 0.8f, 0.3f, 1.0f };
+		float emis[] = { 0.1f, 0.1f, 0.0f, 1.0f };
+		pkg.mat.shininess = 60.0f; pkg.mat.texCount = 0;
+		memcpy(pkg.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(pkg.mat.diffuse, diff, 4 * sizeof(float));
+		memcpy(pkg.mat.specular, spec, 4 * sizeof(float));
+		memcpy(pkg.mat.emissive, emis, 4 * sizeof(float));
+		renderer.myMeshes.push_back(pkg);
+		packageMeshID = (int)renderer.myMeshes.size() - 1;
+	}
+
+	{
+		MyMesh beam = createCylinder(1.0f, 0.3f, 16); // thin vertical column
+		float amb[] = { 0.0f, 0.0f, 0.0f, 0.3f };
+		float diff[] = { 1.0f, 0.9f, 0.3f, 0.35f }; // yellowish beam
+		float spec[] = { 1.0f, 1.0f, 0.8f, 0.35f };
+		float emis[] = { 0.9f, 0.8f, 0.2f, 0.35f };
+		beam.mat.shininess = 30.0f;
+		beam.mat.texCount = 0;
+		memcpy(beam.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(beam.mat.diffuse, diff, 4 * sizeof(float));
+		memcpy(beam.mat.specular, spec, 4 * sizeof(float));
+		memcpy(beam.mat.emissive, emis, 4 * sizeof(float));
+		renderer.myMeshes.push_back(beam);
+		beamMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
 	// Create the initial list
