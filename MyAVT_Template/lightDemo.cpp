@@ -456,8 +456,8 @@ void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
 		outMax[0] = baseX + scaleX * 0.5f;
 		outMin[2] = baseZ - scaleZ * 0.5f;
 		outMax[2] = baseZ + scaleZ * 0.5f;
-		outMin[1] = yOff + 0.5f;     // cylinder bottom lifted by 0.5
-		outMax[1] = outMin[1] + h;   // full height above
+		outMin[1] = yOff;     // cylinder bottom lifted by 0.5
+		outMax[1] = yOff + 1.5f*h;   // full height above
 	}
 	else {
 		// Cube: spans full [0,scale] instead of centered
@@ -886,10 +886,10 @@ void renderSim(void) {
 	
 	// Draw the floor - myMeshes[0] contains the quad object
 	mu.pushMatrix(gmu::MODEL);
-	mu.translate(gmu::MODEL, 0.0f, -0.5f, 0.0f);
+	mu.translate(gmu::MODEL, 0.0f, 0.0f, 0.0f);
 	//mu.scale(gmu::MODEL, 30.0f, 0.1f, 30.0f);
 	mu.rotate(gmu::MODEL, -90.0f, 1.0f, 0.0f, 0.0f);
-	mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f); //centrar o cubo na origem
+	//mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f); //centrar o cubo na origem
 
 	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 	mu.computeNormalMatrix3x3();
@@ -924,9 +924,10 @@ void renderSim(void) {
 			float height = city[i][j].height;
 
 			// same cube/cylinder transform (handle cylinder lift)
-			if (mID == 3) { // cylinder original index
+			if (mID == 3) { // opaque cylinder buildings
 				mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
-				mu.translate(gmu::MODEL, 0.0f, 0.5f, 0.0f);
+				mu.translate(gmu::MODEL, 0.0f, 0.75f, 0.0f); // use constant 0.75
+
 			}
 			else {
 				mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
@@ -966,7 +967,7 @@ void renderSim(void) {
 			// same transforms; handle the glass cylinder like the original cylinder
 			if (mID == glassCylMeshID) {
 				mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
-				mu.translate(gmu::MODEL, 0.0f, 0.5f, 0.0f);
+				mu.translate(gmu::MODEL, 0.0f, 0.75f, 0.0f);
 			}
 			else {
 				mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
