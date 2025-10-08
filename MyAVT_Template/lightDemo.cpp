@@ -229,8 +229,12 @@ bool hasPackage = false;
 bool gameOver = false;
 
 // battery parameters
-const float BATTERY_DRAIN_RATE = 0.2f;  // proportional to throttle
+const float BATTERY_DRAIN_RATE = 2.0f;  // proportional to throttle
 const float COLLISION_PENALTY = 20.0f;   // lose 20% battery per crash
+
+float lastCollisionTime = -1.0f;  
+const float collisionCooldown = 1.0f; // 1 second delay between two collision penalties
+
 
 
 float cam2_yawOffset = 0.0f;   // horizontal orbit around drone
@@ -628,8 +632,13 @@ void updateDrone(float deltaTime) {
 		drone.pos[2] = prevPos[2];
 		drone.speed = 0.0f;
 		drone.vSpeed = 0.0f;
-		batteryLevel -= COLLISION_PENALTY;
-		batteryLevel = std::max(0.0f, batteryLevel);
+
+		float now = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+		if (lastCollisionTime < 0 || now - lastCollisionTime > collisionCooldown) {
+			batteryLevel -= COLLISION_PENALTY;
+			batteryLevel = std::max(0.0f, batteryLevel);
+			lastCollisionTime = now;
+		}
 
 		const float spacing = 7.2f;
 		const float floorSize = 65.0f;
