@@ -273,7 +273,7 @@ const float BASE_SPEED = 20.0f;   // initial median speed
 float speedFactor = 1.0f;
 float nextSpeedBump = 5.0f;  // seconds
 
-// for later
+
 int meshFlyingObject = -1;
 
 int droneBodyMeshID = -1;
@@ -369,26 +369,7 @@ void refresh(int value)
 	glutTimerFunc(16, refresh, 0);
 }
 
-
-// ------------------------------------------------------------
-//
 // Reshape Callback Function
-//
-
-/*void changeSize(int w, int h) {
-
-	float ratio;
-	// Prevent a divide by zero, when window is too short
-	if(h == 0)
-		h = 1;
-	// set the viewport to be the entire window
-	glViewport(0, 0, w, h);
-	// set the projection matrix
-	ratio = (1.0f * w) / h;
-	mu.loadIdentity(gmu::PROJECTION);
-	mu.perspective(53.13f, ratio, 0.1f, 1000.0f);
-}*/
-
 void changeSize(int w, int h) {
 	if (h == 0) h = 1;  // prevent divide by zero
 
@@ -451,12 +432,11 @@ void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
 	int mID = city[i][j].meshID;
 
 	if (mID == 3 || mID == glassCylMeshID) {
-		// Cylinder: after scale+translate(0,0.5,0)
 		outMin[0] = baseX - scaleX * 0.5f;
 		outMax[0] = baseX + scaleX * 0.5f;
 		outMin[2] = baseZ - scaleZ * 0.5f;
 		outMax[2] = baseZ + scaleZ * 0.5f;
-		outMin[1] = yOff;     // cylinder bottom lifted by 0.5
+		outMin[1] = yOff;    
 		outMax[1] = yOff + 1.5f*h;   // full height above
 	}
 	else {
@@ -507,7 +487,6 @@ void computeDroneAABB(const Drone& drone, float outMin[3], float outMax[3]) {
 		}
 		};
 
-	// === Recreate EXACT render path with mu ===
 	mu.pushMatrix(gmu::MODEL);
 	mu.loadIdentity(gmu::MODEL);
 
@@ -517,19 +496,18 @@ void computeDroneAABB(const Drone& drone, float outMin[3], float outMax[3]) {
 	mu.rotate(gmu::MODEL, drone.pitch, 1.0f, 0.0f, 0.0f); // pitch
 	mu.rotate(gmu::MODEL, drone.roll, 0.0f, 0.0f, 1.0f); // roll
 
-	// --- Body (matches renderSim) ---
+	// --- Body (matches renderSim) --
 	mu.pushMatrix(gmu::MODEL);
 	mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f); // center cube
 	mu.scale(gmu::MODEL, bodyScaleX, bodyScaleY, bodyScaleZ);
 	accumulateCurrentMuModel(cubeMin, cubeMax);
 	mu.popMatrix(gmu::MODEL);
 
-	// --- Rotors (4 corners; matches renderSim order) ---
+	// -- Rotors (4 corners; matches renderSim order) --
 	for (int ix = -1; ix <= 1; ix += 2) {
 		for (int iz = -1; iz <= 1; iz += 2) {
 			mu.pushMatrix(gmu::MODEL);
 			mu.translate(gmu::MODEL, ix * halfX, rotorHeight, iz * halfZ);
-			// render path does this before scaling
 			mu.translate(gmu::MODEL, 0.5f, 0.0f, 0.5f);
 			mu.scale(gmu::MODEL, rotorScaleX, rotorScaleY, rotorScaleZ);
 			accumulateCurrentMuModel(cylMin, cylMax);
@@ -542,7 +520,7 @@ void computeDroneAABB(const Drone& drone, float outMin[3], float outMax[3]) {
 
 
 void computeFlyingObjectAABB(const FlyingObject& o, float outMin[3], float outMax[3]) {
-	// Recreate the SAME model xform path that you use to render the object.
+	
 	mu.pushMatrix(gmu::MODEL);
 	mu.loadIdentity(gmu::MODEL);
 
@@ -552,11 +530,9 @@ void computeFlyingObjectAABB(const FlyingObject& o, float outMin[3], float outMa
 	else                     mu.rotate(gmu::MODEL, o.rotAngle, 0.0f, 0.0f, 1.0f);
 	mu.scale(gmu::MODEL, o.size, o.size, o.size);
 
-	// Get the exact matrix gmu used
 	Mat4 M = mat4FromGmu(mu.get(gmu::MODEL));
 	mu.popMatrix(gmu::MODEL);
 
-	// Local unit cube of the flying object (your createCube() is [0,1]^3)
 	const float cubeMin[3] = { 0.0f, 0.0f, 0.0f };
 	const float cubeMax[3] = { 1.0f, 1.0f, 1.0f };
 
@@ -779,9 +755,8 @@ void renderSim(void) {
 	// load identity matrices
 	mu.loadIdentity(gmu::VIEW);
 	mu.loadIdentity(gmu::MODEL);
-	// set the camera using a function similar to gluLookAt
-	//mu.lookAt(camX, camY, camZ, 0, 0, 0, 0, 1, 0);
 	mu.loadIdentity(gmu::PROJECTION);
+
 	Camera& cam = cams[activeCam];
 	// switch between perspective vs ortho
 	if (cam.type == 0) {
@@ -887,9 +862,7 @@ void renderSim(void) {
 	// Draw the floor - myMeshes[0] contains the quad object
 	mu.pushMatrix(gmu::MODEL);
 	mu.translate(gmu::MODEL, 0.0f, 0.0f, 0.0f);
-	//mu.scale(gmu::MODEL, 30.0f, 0.1f, 30.0f);
 	mu.rotate(gmu::MODEL, -90.0f, 1.0f, 0.0f, 0.0f);
-	//mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f); //centrar o cubo na origem
 
 	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 	mu.computeNormalMatrix3x3();
@@ -915,7 +888,6 @@ void renderSim(void) {
 			if (mID == glassCubeMeshID || mID == glassCylMeshID) continue; // skip glass here
 
 			mu.pushMatrix(gmu::MODEL);
-			// same translate as before:
 			mu.translate(gmu::MODEL,
 				xOffset + (float)i * spacing + buildingOffset[i][j][0],
 				0.0f + buildingOffset[i][j][1],
@@ -923,7 +895,6 @@ void renderSim(void) {
 
 			float height = city[i][j].height;
 
-			// same cube/cylinder transform (handle cylinder lift)
 			if (mID == 3) { // opaque cylinder buildings
 				mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
 				mu.translate(gmu::MODEL, 0.0f, 0.75f, 0.0f); // use constant 0.75
@@ -997,7 +968,7 @@ void renderSim(void) {
 	mu.rotate(gmu::MODEL, drone.pitch, 1.0f, 0.0f, 0.0f);
 	mu.rotate(gmu::MODEL, drone.roll, 0.0f, 0.0f, 1.0f);
 
-	// --- Body ---
+	// body
 	// The repo's cube is in [0,1]^3 with origin at the min corner.
 	// Center it at (0,0,0) first, THEN scale, so the drone origin is the body center.
 	float bodyScaleX = 2.0f;
@@ -1017,11 +988,11 @@ void renderSim(void) {
 	renderer.renderMesh(data);
 	mu.popMatrix(gmu::MODEL);
 
-	// --- Rotors (4 corners around the now-correct body center) ---
+	// Rotors
 	float rotorMargin = 0.0f;  // set to 0
 	float rotorHeight = 0.2f;
 
-	// half extents of the body (since it's centered at origin now)
+	// half extents of the body (bc it's centered at origin)
 	float halfX = bodyScaleX * 0.5f + rotorMargin;
 	float halfZ = bodyScaleZ * 0.5f + rotorMargin;
 
@@ -1030,8 +1001,6 @@ void renderSim(void) {
 			mu.pushMatrix(gmu::MODEL);
 			mu.translate(gmu::MODEL, ix * halfX, rotorHeight, iz * halfZ);
 
-			// rotor mesh (cylinder) is already centered in XZ in this project,
-			// and height is in [-0.5,0.5] before scaling, so no centering translate needed.
 			mu.translate(gmu::MODEL, 0.5f, 0.0f, 0.5f);
 			mu.scale(gmu::MODEL, 1.7f, 0.3f, 1.7f);
 
@@ -1049,11 +1018,8 @@ void renderSim(void) {
 
 	mu.popMatrix(gmu::MODEL);
 
-	
-
 	for (const auto& o : flyingObjects) {
 		
-
 		mu.pushMatrix(gmu::MODEL);
 		mu.translate(gmu::MODEL, o.pos[0], o.pos[1], o.pos[2]);
 		if (o.rotAxis == 0) mu.rotate(gmu::MODEL, o.rotAngle, 1.0f, 0.0f, 0.0f);
@@ -1331,16 +1297,6 @@ void buildScene()
 	amesh.mat.texCount = texcount;
 	renderer.myMeshes.push_back(amesh);
 
-	// create geometry and VAO of the pawn
-	//amesh = createPawn();
-	//memcpy(amesh.mat.ambient, amb, 4 * sizeof(float));
-	//memcpy(amesh.mat.diffuse, diff, 4 * sizeof(float));
-	//memcpy(amesh.mat.specular, spec, 4 * sizeof(float));
-	//memcpy(amesh.mat.emissive, emissive, 4 * sizeof(float));
-	//amesh.mat.shininess = shininess;
-	//amesh.mat.texCount = texcount;
-	//renderer.myMeshes.push_back(amesh);
-
 	// create geometry and VAO of the sphere
 	amesh = createSphere(1.0f, 20);
 	memcpy(amesh.mat.ambient, amb, 4 * sizeof(float));
@@ -1396,7 +1352,7 @@ void buildScene()
 
 	
 
-	// -- - Drone body(flattened cube) -- -
+	// Drone body(flattened cube)
 	{
 		MyMesh body = createCube();
 		float amb[] = { 0.2f, 0.2f, 0.2f, 1.0f };
@@ -1412,7 +1368,7 @@ void buildScene()
 		droneBodyMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
-	// --- Drone rotor (cylinder) ---
+	// Drone rotor (cylinder)
 	{
 		MyMesh rotor = createCylinder(1.0f, 0.2f, 20); // wide & flat
 		float amb[] = { 0.1f, 0.1f, 0.1f, 1.0f };
@@ -1428,6 +1384,7 @@ void buildScene()
 		droneRotorMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
+	// Wireframe cube for AABB debug drawing
 	{
 		MyMesh wire = createCube();  // unit cube in [0,1]^3
 
@@ -1445,16 +1402,6 @@ void buildScene()
 		renderer.myMeshes.push_back(wire);
 		wireCubeMeshID = (int)renderer.myMeshes.size() - 1;
 	}
-
-	// create geometry and VAO of the cone
-	//amesh = createCone(2.5f, 1.2f, 20);
-	//memcpy(amesh.mat.ambient, amb, 4 * sizeof(float));
-	//memcpy(amesh.mat.diffuse, diff, 4 * sizeof(float));
-	//memcpy(amesh.mat.specular, spec, 4 * sizeof(float));
-	//memcpy(amesh.mat.emissive, emissive, 4 * sizeof(float));
-	//amesh.mat.shininess = shininess;
-	//amesh.mat.texCount = texcount;
-	//renderer.myMeshes.push_back(amesh);
 
 	// create geometry and VAO of the torus
 	//amesh = createTorus(0.5f, 1.5f, 20, 20);
