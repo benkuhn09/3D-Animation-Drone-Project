@@ -221,6 +221,17 @@ struct Drone {
 };
 
 Drone drone;
+float batteryLevel = 1.0f;      // 1.0 = full, 0.0 = empty
+int playerScore = 0;
+bool hasPackage = false;
+bool gameOver = false;
+
+// battery parameters
+const float BATTERY_DRAIN_RATE = 0.2f;  // proportional to throttle
+const float COLLISION_PENALTY = 0.20f;   // lose 20% battery per crash
+
+
+
 float cam2_yawOffset = 0.0f;   // horizontal orbit around drone
 float cam2_pitchOffset = 0.0f; // vertical orbit around drone
 
@@ -598,7 +609,10 @@ void updateDrone(float deltaTime) {
 	drone.pos[2] += (dz * drone.speed + sideZ * lateralSpeed) * deltaTime;
 
 	// prevent drone from going below the floor
-	if (drone.pos[1] < 1.0f) drone.pos[1] = 1.0f;
+	const float floorY = 0.0f;
+	const float droneHalfHeight = 0.5f;
+	if (drone.pos[1] - droneHalfHeight < floorY)
+		drone.pos[1] = floorY + droneHalfHeight;
 
 	/* --- Collision Handling (unchanged) --- */
 	float dMin[3], dMax[3];
@@ -611,6 +625,8 @@ void updateDrone(float deltaTime) {
 		drone.pos[2] = prevPos[2];
 		drone.speed = 0.0f;
 		drone.vSpeed = 0.0f;
+		batteryLevel -= COLLISION_PENALTY;
+		batteryLevel = std::max(0.0f, batteryLevel);
 
 		const float spacing = 7.2f;
 		const float floorSize = 65.0f;
@@ -643,6 +659,26 @@ void updateDrone(float deltaTime) {
 			break;
 		}
 	}
+	if (!gameOver) {
+		float throttle = std::abs(drone.vSpeed / drone.maxVSpeed);
+		batteryLevel -= BATTERY_DRAIN_RATE * throttle * deltaTime;
+		batteryLevel = std::max(0.0f, batteryLevel);
+
+		if (batteryLevel <= 0.0f) {
+			gameOver = true;
+			drone.speed = 0.0f;
+			drone.vSpeed = -3.0f;  // start falling
+		}
+	}
+	// fall when out of battery
+	if (gameOver && drone.pos[1] > 0.0f) {
+		drone.vSpeed -= 9.8f * deltaTime;  // gravity
+		drone.pos[1] += drone.vSpeed * deltaTime;
+		if (drone.pos[1] <= 0.5f) {
+			drone.pos[1] = 0.5f;
+			drone.vSpeed = 0.0f;
+		}
+	}
 }
 
 
@@ -652,8 +688,14 @@ void animate(float deltaTime) {
 	if (keys['d']) drone.dirAngle -= drone.turnRate * deltaTime;
 
 	// --- Throttle (W/S) ---
-	if (keys['w']) drone.vSpeed = std::min(drone.vSpeed + 0.2f, drone.maxVSpeed);
-	if (keys['s']) drone.vSpeed = std::max(drone.vSpeed - 0.2f, -drone.maxVSpeed);
+	if (!gameOver) {
+		if (keys['w']) drone.vSpeed = std::min(drone.vSpeed + 0.2f, drone.maxVSpeed);
+		if (keys['s']) drone.vSpeed = std::max(drone.vSpeed - 0.2f, -drone.maxVSpeed);
+	}
+	else {
+		// No manual thrust while falling; prevent any upward velocity
+		if (drone.vSpeed > 0.0f) drone.vSpeed = 0.0f;
+	}
 
 	// --- Pitch (arrow up/down) ---
 	if (specialKeys[GLUT_KEY_UP]) {
