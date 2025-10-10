@@ -249,6 +249,18 @@ struct Package {
 Package package;
 int packageMeshID = -1;
 
+struct SmokeParticle {
+	float pos[3];
+	float vel[3];
+	float life;
+	float maxLife;
+	float size;
+};
+
+std::vector<SmokeParticle> g_smoke;
+int smokeQuadMeshID = -1;
+//GLuint smokeTextureID = 0;
+
 float cam2_yawOffset = 0.0f;   // horizontal orbit around drone
 float cam2_pitchOffset = 0.0f; // vertical orbit around drone
 
@@ -385,6 +397,23 @@ void updateFlyingObjects(float dt, float elapsedSeconds) {
 	}
 }
 
+void updateSmokeParticles(float dt) {
+	for (auto& p : g_smoke) {
+		p.life -= dt;
+		if (p.life > 0.0f) {
+			p.pos[0] += p.vel[0] * dt;
+			p.pos[1] += p.vel[1] * dt;
+			p.pos[2] += p.vel[2] * dt;
+		}
+	}
+	// remove dead particles
+	g_smoke.erase(
+		std::remove_if(g_smoke.begin(), g_smoke.end(),
+			[](const SmokeParticle& p) { return p.life <= 0.0f; }),
+		g_smoke.end());
+}
+
+
 void refresh(int value)
 {
 	static float last = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
@@ -394,6 +423,7 @@ void refresh(int value)
 
 	if (!paused) {
 		updateFlyingObjects(dt, now);
+		updateSmokeParticles(dt);
 	}
 	
 	glutPostRedisplay();
@@ -626,6 +656,68 @@ void resetDrone() {
 	drone.vSpeed = 0.0f;
 }
 
+static inline void closestPointOnAABB(const float p[3], const float bmin[3], const float bmax[3], float out[3]) {
+	out[0] = std::max(bmin[0], std::min(p[0], bmax[0]));
+	out[1] = std::max(bmin[1], std::min(p[1], bmax[1]));
+	out[2] = std::max(bmin[2], std::min(p[2], bmax[2]));
+}
+
+// Compute the 4 rotor centers in WORLD space (same layout/params as renderSim)
+static void computeRotorWorldPositions(const Drone& d, float out[4][3]) {
+	const float bodyScaleX = 2.0f;
+	const float bodyScaleY = 0.6f; (void)bodyScaleY; // not needed here
+	const float bodyScaleZ = 2.0f;
+
+	const float rotorMargin = 0.0f;
+	const float rotorHeight = 0.2f;
+	const float halfX = bodyScaleX * 0.5f + rotorMargin;
+	const float halfZ = bodyScaleZ * 0.5f + rotorMargin;
+
+	// local rotor centers in DRONE MODEL space match the render order:
+	// translate(ix*halfX, rotorHeight, iz*halfZ); translate(0.5,0,0.5);
+	const float local[4][3] = {
+		{ -halfX + 0.5f, rotorHeight, -halfZ + 0.5f }, // (-x,-z)
+		{ -halfX + 0.5f, rotorHeight,  halfZ + 0.5f }, // (-x,+z)
+		{  halfX + 0.5f, rotorHeight, -halfZ + 0.5f }, // (+x,-z)
+		{  halfX + 0.5f, rotorHeight,  halfZ + 0.5f }, // (+x,+z)
+	};
+
+	// Build the same base transform used for the drone in renderSim (T * R_y * R_x * R_z)
+	mu.pushMatrix(gmu::MODEL);
+	mu.loadIdentity(gmu::MODEL);
+	mu.translate(gmu::MODEL, d.pos[0], d.pos[1], d.pos[2]);
+	mu.rotate(gmu::MODEL, d.dirAngle, 0.0f, 1.0f, 0.0f); // yaw
+	mu.rotate(gmu::MODEL, d.pitch, 1.0f, 0.0f, 0.0f); // pitch
+	mu.rotate(gmu::MODEL, d.roll, 0.0f, 0.0f, 1.0f); // roll
+
+	Mat4 M = mat4FromGmu(mu.get(gmu::MODEL));
+	mu.popMatrix(gmu::MODEL);
+
+	for (int i = 0; i < 4; ++i) xformPoint(M, local[i], out[i]);
+}
+
+static inline void emitSmokeBurstAt(const float src[3], const float n[3], int count = 15) {
+	// normalized normal (fallback up)
+	float nx = n[0], ny = n[1], nz = n[2];
+	float nlen = sqrtf(nx * nx + ny * ny + nz * nz);
+	if (nlen > 1e-4f) { nx /= nlen; ny /= nlen; nz /= nlen; }
+	else { nx = 0; ny = 1; nz = 0; }
+
+	for (int i = 0; i < count; ++i) {
+		SmokeParticle p{};
+		p.pos[0] = src[0]; p.pos[1] = src[1]; p.pos[2] = src[2];
+
+		// upward drift + slight push away from the surface
+		p.vel[0] = frand(-0.3f, 0.3f) + nx * frand(0.2f, 0.6f);
+		p.vel[1] = frand(1.0f, 2.2f) + ny * frand(0.1f, 0.4f);
+		p.vel[2] = frand(-0.3f, 0.3f) + nz * frand(0.2f, 0.6f);
+
+		p.life = p.maxLife = frand(1.0f, 2.0f);
+		p.size = frand(0.8f, 1.5f);
+		g_smoke.push_back(p);
+	}
+}
+
 void updateDrone(float deltaTime) {
 
 	float prevPos[3] = { drone.pos[0], drone.pos[1], drone.pos[2] };
@@ -677,6 +769,49 @@ void updateDrone(float deltaTime) {
 			batteryLevel -= COLLISION_PENALTY;
 			batteryLevel = std::max(0.0f, batteryLevel);
 			lastCollisionTime = now;
+
+			float bMin[3], bMax[3];
+			computeBuildingAABB(hitI, hitJ, bMin, bMax);
+
+			float rotors[4][3];
+			computeRotorWorldPositions(drone, rotors);
+
+			// compute squared distance from each rotor to the building (via closest point)
+			float d2Arr[4];
+			float cp[4][3]; // closest points on the AABB to each rotor
+			for (int i = 0; i < 4; ++i) {
+				closestPointOnAABB(rotors[i], bMin, bMax, cp[i]);
+				float dx = rotors[i][0] - cp[i][0];
+				float dy = rotors[i][1] - cp[i][1];
+				float dz = rotors[i][2] - cp[i][2];
+				d2Arr[i] = dx * dx + dy * dy + dz * dz;
+			}
+
+			// find best and second-best indices
+			int best = 0, second = 1;
+			if (d2Arr[second] < d2Arr[best]) std::swap(best, second);
+			for (int i = 2; i < 4; ++i) {
+				if (d2Arr[i] < d2Arr[best]) { second = best; best = i; }
+				else if (d2Arr[i] < d2Arr[second]) { second = i; }
+			}
+
+			// convert to actual distances for a nicer “tie” test
+			float d1 = sqrtf(d2Arr[best]);
+			float d2 = sqrtf(d2Arr[second]);
+
+			// tie thresholds (tweak to taste)
+			const float ROTOR_TIE_ABS_EPS = 0.25f;   // meters
+			const float ROTOR_TIE_REL_EPS = 0.20f;   // within 20%
+
+			bool emitTwo = ((fabsf(d2 - d1) < ROTOR_TIE_ABS_EPS) || (d1 > 1e-4f && (d2 / d1 - 1.0f) < ROTOR_TIE_REL_EPS));
+
+			// normals (from wall-contact point toward rotor)
+			float nBest[3] = { rotors[best][0] - cp[best][0],   rotors[best][1] - cp[best][1],   rotors[best][2] - cp[best][2] };
+			float nSecond[3] = { rotors[second][0] - cp[second][0], rotors[second][1] - cp[second][1], rotors[second][2] - cp[second][2] };
+
+			// emit
+			emitSmokeBurstAt(rotors[best], nBest, 15);
+			if (emitTwo) emitSmokeBurstAt(rotors[second], nSecond, 12); // slightly fewer for balance
 		}
 
 		const float spacing = 7.2f;
@@ -921,6 +1056,55 @@ void drawBatteryHUD(float batteryLevel, int x, int y, int width, int height) {
 
 float lastTime = 0.0f;
 
+void renderSmokeParticles(const Camera& cam) {
+	if (g_smoke.empty() || smokeQuadMeshID < 0) return;
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
+
+	for (const auto& p : g_smoke) {
+		float ageRatio = 1.0f - (p.life / p.maxLife);
+		float fade = 1.0f - ageRatio; // fade out with age
+		float scale = p.size * (0.8f + 0.5f * ageRatio); // slightly grow
+
+		// compute billboard rotation to face camera
+		mu.pushMatrix(gmu::MODEL);
+		mu.translate(gmu::MODEL, p.pos[0], p.pos[1], p.pos[2]);
+
+		// remove rotation so it faces camera
+		float cx = cam.pos[0], cy = cam.pos[1], cz = cam.pos[2];
+		float dx = cx - p.pos[0];
+		float dy = cy - p.pos[1];
+		float dz = cz - p.pos[2];
+		float len = sqrtf(dx * dx + dz * dz);
+		float yaw = (len > 0.0001f) ? atan2f(dx, dz) * 180.0f / 3.14159f : 0.0f;
+		mu.rotate(gmu::MODEL, yaw, 0, 1, 0);
+
+		mu.scale(gmu::MODEL, scale, scale, scale);
+
+		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+		mu.computeNormalMatrix3x3();
+
+		dataMesh d{};
+		d.meshID = smokeQuadMeshID;
+		d.texMode = 7; // your smoke texture mode
+		d.vm = mu.get(gmu::VIEW_MODEL);
+		d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+		d.normal = mu.getNormalMatrix();
+
+		// override material alpha to fade out
+		renderer.myMeshes[d.meshID].mat.diffuse[3] = fade;
+
+		renderer.renderMesh(d);
+		mu.popMatrix(gmu::MODEL);
+	}
+
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+}
+
+
 void renderSim(void) {
 
 	FrameCount++;
@@ -978,6 +1162,7 @@ void renderSim(void) {
 	renderer.setTexUnit(6, 6);
 	renderer.setTexUnit(7, 7);
 	renderer.setTexUnit(8, 8);
+	renderer.setTexUnit(9, 9);
 
 	// load identity matrices
 	mu.loadIdentity(gmu::VIEW);
@@ -1331,6 +1516,8 @@ void renderSim(void) {
 		glDisable(GL_BLEND);
 	}
 
+	renderSmokeParticles(cams[activeCam]);
+
 	//Render text (bitmap fonts) in screen coordinates. So use ortoghonal projection with viewport coordinates.
 	//Each glyph quad texture needs just one byte color channel: 0 in background and 1 for the actual character pixels. Use it for alpha blending
 	//text to be rendered in last place to be in front of everything
@@ -1563,6 +1750,7 @@ void buildScene()
 	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_plain.jpg");
 	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_glass.jpg");
 	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_residential.jpg");
+	renderer.TexObjArray.texture2D_Loader("assets/smoke_particle.png");
 
 	//Scene geometry with triangle meshes
 
@@ -1812,6 +2000,22 @@ void buildScene()
 		memcpy(beam.mat.emissive, emis, 4 * sizeof(float));
 		renderer.myMeshes.push_back(beam);
 		beamMeshID = (int)renderer.myMeshes.size() - 1;
+	}
+
+	// ---- Smoke particle billboard quad ----
+	{
+		MyMesh smoke = createQuad(1.0f, 1.0f); // unit quad
+		float amb[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		float diff[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float spec[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		float emis[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		smoke.mat.shininess = 1.0f; smoke.mat.texCount = 1;
+		memcpy(smoke.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(smoke.mat.diffuse, diff, 4 * sizeof(float));
+		memcpy(smoke.mat.specular, spec, 4 * sizeof(float));
+		memcpy(smoke.mat.emissive, emis, 4 * sizeof(float));
+		renderer.myMeshes.push_back(smoke);
+		smokeQuadMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
 	// Create the initial list

@@ -50,6 +50,7 @@ uniform sampler2D texmap5;
 uniform sampler2D texmap6;
 uniform sampler2D texmap7;
 uniform sampler2D texmap8;
+uniform sampler2D texmap9;
 
 uniform int texMode;
 
@@ -174,10 +175,15 @@ void main() {
         baseColor = vec4(lighting * texel.rgb, 1.0);
         alpha *= texel.a;
     }
-    else { // fallback
+    else if (texMode == 6) { // fallback
         texel = texture(texmap3, DataIn.tex_coord);
         texel1 = texture(texmap4, DataIn.tex_coord);
         baseColor = vec4(lighting * (texel.rgb * texel1.rgb), 1.0);
+        alpha *= texel.a;
+    }
+    else {
+        texel = texture(texmap9, DataIn.tex_coord); // smoke particle
+        baseColor = vec4(lighting * texel.rgb, 1.0);
         alpha *= texel.a;
     }
 
