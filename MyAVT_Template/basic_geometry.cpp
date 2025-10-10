@@ -129,7 +129,7 @@ MyMesh createCylinder(float height, float radius, int sides) {
 			-radius,	 height*0.5f
 	};
 
-	return(computeVAO(4, p+2, p, sides, 0.0f));
+	return(computeVAO(4, p+2, p, sides, 0.0f)); 
 }
 
 MyMesh createCone(float height, float baseRadius, int sides) {

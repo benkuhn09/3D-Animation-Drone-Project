@@ -1158,31 +1158,6 @@ void renderSim(void) {
 		mu.popMatrix(gmu::MODEL);
 	}
 
-	// Render glowing beam above package building
-	if (package.active && beamMeshID >= 0) {
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-		glDepthMask(GL_FALSE);
-
-		mu.pushMatrix(gmu::MODEL);
-		mu.translate(gmu::MODEL, package.pos[0], package.pos[1] + 40.0f, package.pos[2]); // center vertically
-		mu.scale(gmu::MODEL, 2.0f, 40.0f, 2.0f);
-		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-		mu.computeNormalMatrix3x3();
-
-		data.meshID = beamMeshID;
-		data.texMode = 0;
-		data.vm = mu.get(gmu::VIEW_MODEL);
-		data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
-		data.normal = mu.getNormalMatrix();
-
-		renderer.renderMesh(data);
-		mu.popMatrix(gmu::MODEL);
-
-		glDepthMask(GL_TRUE);
-		glDisable(GL_BLEND);
-	}
-
 
 	// DRONE RENDERING
 	mu.pushMatrix(gmu::MODEL);
@@ -1265,6 +1240,44 @@ void renderSim(void) {
 		mu.popMatrix(gmu::MODEL);
 
 	}
+
+	// Render glowing beam above package building
+	if (package.active && beamMeshID >= 0) {
+		
+		float beamHeight = 25.0f;
+		float beamRadius = 3.0f;
+		// Make the beam independent of alpha and always visible
+		renderer.activateRenderMeshesShaderProg();      // ensure mesh shader is bound
+		                       
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ONE, GL_ONE);                    // pure additive, ignore alpha
+		glDepthMask(GL_FALSE);
+		glEnable(GL_DEPTH_TEST);                       // draw over everything
+		                          // don’t touch depth
+
+		mu.pushMatrix(gmu::MODEL);
+		mu.translate(gmu::MODEL, package.pos[0], package.pos[1] + beamHeight * 0.5f, package.pos[2]);
+		mu.scale(gmu::MODEL, beamRadius, beamHeight, beamRadius);
+		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+		mu.computeNormalMatrix3x3();
+
+		data.meshID = beamMeshID;
+		data.texMode = 0;
+		data.vm = mu.get(gmu::VIEW_MODEL);
+		data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+		data.normal = mu.getNormalMatrix();
+		renderer.renderMesh(data);
+
+		mu.popMatrix(gmu::MODEL);
+
+		// Restore state
+		
+		glDepthMask(GL_TRUE);
+		glDisable(GL_BLEND);
+		
+		
+	}
+
 	//Render text (bitmap fonts) in screen coordinates. So use ortoghonal projection with viewport coordinates.
 	//Each glyph quad texture needs just one byte color channel: 0 in background and 1 for the actual character pixels. Use it for alpha blending
 	//text to be rendered in last place to be in front of everything
@@ -1733,12 +1746,12 @@ void buildScene()
 	}
 
 	{
-		MyMesh beam = createCylinder(1.0f, 0.3f, 16); // thin vertical column
-		float amb[] = { 0.0f, 0.0f, 0.0f, 0.3f };
-		float diff[] = { 1.0f, 0.9f, 0.3f, 0.35f }; // yellowish beam
-		float spec[] = { 1.0f, 1.0f, 0.8f, 0.35f };
-		float emis[] = { 0.9f, 0.8f, 0.2f, 0.35f };
-		beam.mat.shininess = 30.0f;
+		MyMesh beam = createCylinder(1.0f, 0.3f, 16);
+		float amb[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		float diff[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		float spec[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		float emis[] = { 2.0f, 1.6f, 0.4f, 1.0f }; // bright yellowish
+		beam.mat.shininess = 1.0f;
 		beam.mat.texCount = 0;
 		memcpy(beam.mat.ambient, amb, 4 * sizeof(float));
 		memcpy(beam.mat.diffuse, diff, 4 * sizeof(float));
