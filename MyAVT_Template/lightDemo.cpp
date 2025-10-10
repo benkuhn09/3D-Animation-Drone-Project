@@ -239,6 +239,11 @@ struct Package {
 	int i, j;        // which building it's on (grid indices)
 	float pos[3];    // world position (x, y, z)
 	bool active;     // true if visible
+
+	bool beingCarried = false;
+	bool delivered = false;
+	int destI, destJ;
+	float destPos[3];
 };
 
 Package package;
@@ -281,7 +286,7 @@ struct FlyingObject {
 
 std::vector<FlyingObject> flyingObjects;
 
-const int   NUM_FLYING_OBJECTS = 11;
+const int   NUM_FLYING_OBJECTS = 1;
 const float SPAWN_RADIUS = 45.0f;  // birth ring radius (XZ)
 const float KILL_RADIUS = 65.0f;  // die when too far from center
 const float MIN_Y = 0.0f;
@@ -477,18 +482,31 @@ void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
 }
 
 void spawnPackage() {
+	// Pick random source building
 	package.i = rand() % GRID_SIZE;
 	package.j = rand() % GRID_SIZE;
 
 	float bMin[3], bMax[3];
 	computeBuildingAABB(package.i, package.j, bMin, bMax);
-
-	// place package centered on roof
 	package.pos[0] = (bMin[0] + bMax[0]) / 2.0f;
-	package.pos[1] = bMax[1] + 0.3f; // slightly above roof
+	package.pos[1] = bMax[1] + 0.3f;
 	package.pos[2] = (bMin[2] + bMax[2]) / 2.0f;
 	package.active = true;
+	package.beingCarried = false;
+	package.delivered = false;
+
+	// Pick a different building for delivery
+	do {
+		package.destI = rand() % GRID_SIZE;
+		package.destJ = rand() % GRID_SIZE;
+	} while (package.destI == package.i && package.destJ == package.j);
+
+	computeBuildingAABB(package.destI, package.destJ, bMin, bMax);
+	package.destPos[0] = (bMin[0] + bMax[0]) / 2.0f;
+	package.destPos[1] = bMax[1] + 0.3f;
+	package.destPos[2] = (bMin[2] + bMax[2]) / 2.0f;
 }
+
 
 void computeDroneAABB(const Drone& drone, float outMin[3], float outMax[3]) {
 	// shapes in local space
@@ -714,6 +732,43 @@ void updateDrone(float deltaTime) {
 			drone.vSpeed = 0.0f;
 		}
 	}
+
+	// --- PACKAGE PICKUP & DELIVERY ---
+	if (package.active) {
+		float dx = drone.pos[0] - package.pos[0];
+		float dy = drone.pos[1] - package.pos[1];
+		float dz = drone.pos[2] - package.pos[2];
+		float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+
+		// Pickup if close enough
+		if (!package.beingCarried && dist < 2.0f && fabs(dy) < 3.0f) {
+			package.beingCarried = true;
+		}
+
+		// If carrying, attach to drone
+		if (package.beingCarried) {
+			package.pos[0] = drone.pos[0];
+			package.pos[1] = drone.pos[1] - 1.5f;
+			package.pos[2] = drone.pos[2];
+		}
+
+		// Drop off if near destination
+		if (package.beingCarried) {
+			float dx2 = drone.pos[0] - package.destPos[0];
+			float dy2 = drone.pos[1] - package.destPos[1];
+			float dz2 = drone.pos[2] - package.destPos[2];
+			float dist2 = sqrtf(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
+
+			if (dist2 < 2.0f && fabs(dy2) < 3.0f) {
+				package.beingCarried = false;
+				package.delivered = true;
+				playerScore += (int)batteryLevel;  // score proportional to remaining battery
+				batteryLevel = 100.0f;
+				spawnPackage(); // start next delivery
+			}
+		}
+	}
+
 
 }
 
@@ -1242,21 +1297,24 @@ void renderSim(void) {
 	}
 
 	// Render glowing beam above package building
-	if (package.active && beamMeshID >= 0) {
-		
+	if (beamMeshID >= 0) {
 		float beamHeight = 25.0f;
 		float beamRadius = 3.0f;
-		// Make the beam independent of alpha and always visible
-		renderer.activateRenderMeshesShaderProg();      // ensure mesh shader is bound
-		                       
+		const float* beamPos = nullptr;
+
+		if (!package.beingCarried)
+			beamPos = package.pos;
+		else
+			beamPos = package.destPos;
+
+		renderer.activateRenderMeshesShaderProg();
 		glEnable(GL_BLEND);
-		glBlendFunc(GL_ONE, GL_ONE);                    // pure additive, ignore alpha
+		glBlendFunc(GL_ONE, GL_ONE);
 		glDepthMask(GL_FALSE);
-		glEnable(GL_DEPTH_TEST);                       // draw over everything
-		                          // don’t touch depth
+		glEnable(GL_DEPTH_TEST);
 
 		mu.pushMatrix(gmu::MODEL);
-		mu.translate(gmu::MODEL, package.pos[0], package.pos[1] + beamHeight * 0.5f, package.pos[2]);
+		mu.translate(gmu::MODEL, beamPos[0], beamPos[1] + beamHeight * 0.5f, beamPos[2]);
 		mu.scale(gmu::MODEL, beamRadius, beamHeight, beamRadius);
 		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 		mu.computeNormalMatrix3x3();
@@ -1269,13 +1327,8 @@ void renderSim(void) {
 		renderer.renderMesh(data);
 
 		mu.popMatrix(gmu::MODEL);
-
-		// Restore state
-		
 		glDepthMask(GL_TRUE);
 		glDisable(GL_BLEND);
-		
-		
 	}
 
 	//Render text (bitmap fonts) in screen coordinates. So use ortoghonal projection with viewport coordinates.
