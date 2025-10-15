@@ -220,6 +220,8 @@ struct Drone {
 
 	float pitchVel = 0.0f;  // deg/s
 	float rollVel = 0.0f;  // deg/s
+
+	bool hasStarted = false;
 };
 
 Drone drone;
@@ -234,6 +236,10 @@ const float COLLISION_PENALTY = 20.0f;   // lose 20% battery per crash
 
 float lastCollisionTime = -1.0f;  
 const float collisionCooldown = 1.0f; // 1 second delay between two collision penalties
+
+// HUD GL objects
+GLuint hudVAO = 0, hudVBO = 0, hudProgram = 0;
+
 
 struct Package {
 	int i, j;        // which building it's on (grid indices)
@@ -752,6 +758,10 @@ void updateDrone(float deltaTime) {
 	if (drone.pos[1] - droneHalfHeight < floorY)
 		drone.pos[1] = floorY + droneHalfHeight;
 
+	if (!drone.hasStarted && (std::abs(drone.speed) > 0.1f || std::abs(drone.vSpeed) > 0.1f)) {
+		drone.hasStarted = true;
+	}
+
 	/* --- Collision Handling (unchanged) --- */
 	float dMin[3], dMax[3];
 	computeDroneAABB(drone, dMin, dMax);
@@ -847,9 +857,11 @@ void updateDrone(float deltaTime) {
 		}
 	}
 
-	if (!gameOver) {
+	if (!gameOver && drone.hasStarted) {
 		float throttle = std::abs(drone.vSpeed / drone.maxVSpeed);
-		batteryLevel -= BATTERY_DRAIN_RATE * throttle * deltaTime;
+		const float TIME_DRAIN_RATE = 0.3f;
+
+		batteryLevel -= (BATTERY_DRAIN_RATE * throttle + TIME_DRAIN_RATE) * deltaTime;
 		batteryLevel = std::max(0.0f, batteryLevel);
 
 		if (batteryLevel <= 0.0f) {
@@ -858,6 +870,7 @@ void updateDrone(float deltaTime) {
 			drone.vSpeed = -3.0f;  // start falling
 		}
 	}
+
 	// fall when out of battery
 	if (gameOver && drone.pos[1] > 0.0f) {
 		drone.vSpeed -= 9.8f * deltaTime;  // gravity
@@ -903,7 +916,6 @@ void updateDrone(float deltaTime) {
 			}
 		}
 	}
-
 
 }
 
@@ -971,21 +983,24 @@ void drawText2D(const std::string& msg, int x, int y, float scale,
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	int viewport[4];
-	glGetIntegerv(GL_VIEWPORT, viewport);
+	int vp[4];
+	glGetIntegerv(GL_VIEWPORT, vp);
 
 	mu.loadIdentity(gmu::MODEL);
 	mu.loadIdentity(gmu::VIEW);
 
 	mu.pushMatrix(gmu::PROJECTION);
 	mu.loadIdentity(gmu::PROJECTION);
-	mu.ortho(viewport[0], viewport[0] + viewport[2] - 1,
-		viewport[1], viewport[1] + viewport[3] - 1,
+	mu.ortho(vp[0], vp[0] + vp[2] - 1,
+		vp[1], vp[1] + vp[3] - 1,
 		-1, 1);
 	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 
-	// Initialisation via liste, compatible avec ton TextCommand
-	TextCommand cmd = { msg.c_str(), {x, y}, scale };
+	TextCommand cmd;
+	cmd.str = msg;
+	cmd.position[0] = (float)x;
+	cmd.position[1] = (float)y;
+	cmd.size = scale;
 	cmd.color[0] = r;
 	cmd.color[1] = g;
 	cmd.color[2] = b;
@@ -996,60 +1011,6 @@ void drawText2D(const std::string& msg, int x, int y, float scale,
 
 	mu.popMatrix(gmu::PROJECTION);
 
-	glDisable(GL_BLEND);
-	glEnable(GL_DEPTH_TEST);
-}
-
-
-void drawBatteryHUD(float batteryLevel, int x, int y, int width, int height) {
-	if (!fontLoaded) return;
-
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	int m_viewport[4];
-	glGetIntegerv(GL_VIEWPORT, m_viewport);
-
-	mu.loadIdentity(gmu::MODEL);
-	mu.loadIdentity(gmu::VIEW);
-	mu.pushMatrix(gmu::PROJECTION);
-	mu.loadIdentity(gmu::PROJECTION);
-	mu.ortho(m_viewport[0], m_viewport[0] + m_viewport[2] - 1,
-		m_viewport[1], m_viewport[1] + m_viewport[3] - 1,
-		-1, 1);
-	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-
-	// Normaliser batterie
-	float pct = batteryLevel / 100.0f;
-	if (pct < 0.0f) pct = 0.0f;
-	if (pct > 1.0f) pct = 1.0f;
-
-	// Couleur en fonction du niveau (vert -> rouge)
-	float r = 1.0f - pct;
-	float g = pct;
-	float b = 0.0f;
-
-	// Dessiner cadre blanc
-	glUseProgram(0);
-	glColor3f(1, 1, 1);
-	glBegin(GL_LINE_LOOP);
-	glVertex2i(x, y);
-	glVertex2i(x + width, y);
-	glVertex2i(x + width, y + height);
-	glVertex2i(x, y + height);
-	glEnd();
-
-	// Dessiner barre remplie
-	glColor3f(r, g, b);
-	glBegin(GL_QUADS);
-	glVertex2i(x, y);
-	glVertex2i(x + (int)(width * pct), y);
-	glVertex2i(x + (int)(width * pct), y + height);
-	glVertex2i(x, y + height);
-	glEnd();
-
-	mu.popMatrix(gmu::PROJECTION);
 	glDisable(GL_BLEND);
 	glEnable(GL_DEPTH_TEST);
 }
@@ -1522,34 +1483,47 @@ void renderSim(void) {
 	//Each glyph quad texture needs just one byte color channel: 0 in background and 1 for the actual character pixels. Use it for alpha blending
 	//text to be rendered in last place to be in front of everything
 	
+	// -- GAME OVER trigger --
 	if (batteryLevel <= 0.0f && !gameOver) {
 		gameOver = true;
 	}
-	
+
+	// Always visible title
 	drawText2D("2025 Drone Project", 100, 200, 0.5f, 1.0f, 1.0f, 1.0f);
 
+	// PAUSED SCREEN 
 	if (paused) {
 		int textX = WinX / 2 - 100;
 		int textY = WinY / 2;
 		drawText2D("PAUSED", textX, textY, 1.2f, 1.0f, 0.0f, 0.0f);
 	}
 
-	// Texte batterie en haut-gauche
-	int vp[4];
-	glGetIntegerv(GL_VIEWPORT, vp);
-	int hudY = vp[3] - 10;
+	//  HUD (Battery + Score)
+	int viewport[4];
+	glGetIntegerv(GL_VIEWPORT, viewport);
 
-	drawText2D("Battery", 20, hudY + 5, 0.6f, 1, 1, 1);
-	drawBatteryHUD(batteryLevel, 90, hudY, 200, 20);
-	drawText2D(std::to_string((int)batteryLevel) + "%", 330, hudY + 5, 0.6f, 1, 1, 1);
+	// marge depuis le haut de la fenêtre
+	int marginTop = 20;
+	int hudHeight = 18;
 
-	// Game Over screen
+	// y mesuré depuis le haut de l’écran
+	int hudY_from_top = marginTop;
+
+	drawText2D("Battery", 20, viewport[3] - hudY_from_top, 0.6f, 1, 1, 1);
+	renderer.drawBatteryHUD(batteryLevel, 100, hudY_from_top, 200, hudHeight);
+	drawText2D(std::to_string((int)batteryLevel) + "%", 320, viewport[3] - hudY_from_top + 5, 0.6f, 1, 1, 1);
+
+
+	//drawText2D("Score: " + std::to_string(score), 20, hudY - 40, 0.6f, 1.0f, 1.0f, 0.0f);
+
+	//  GAME OVER screen
 	if (gameOver) {
 		int textX = WinX / 2 - 180;
 		int textY = WinY / 2;
 		drawText2D("GAME OVER", textX, textY, 1.5f, 1.0f, 0.0f, 0.0f);
 		drawText2D("Press R to restart", textX - 40, textY - 60, 0.8f, 1.0f, 1.0f, 1.0f);
 	}
+
 
 	glutSwapBuffers();
 }
@@ -2090,6 +2064,8 @@ int main(int argc, char **argv) {
 	if(!renderer.setRenderMeshesShaderProg("shaders/mesh.vert", "shaders/mesh.frag") || 
 		!renderer.setRenderTextShaderProg("shaders/ttf.vert", "shaders/ttf.frag"))
 	return(1);
+
+	renderer.initBatteryHUD();
 
 	//  GLUT main loop
 	glutMainLoop(); // infinite loop

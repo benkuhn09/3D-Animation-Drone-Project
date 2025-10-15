@@ -84,6 +84,16 @@ public:
   /// Object of class Texture that manage an array of Texture Objects 
   Texture TexObjArray;
 
+  // HUD battery bar
+  void initBatteryHUD();
+  void drawBatteryHUD(float batteryLevel, int x, int y, int width, int height);
+
+  // GL resources pour HUD (membres publics pour simplicité)
+  GLuint hudVAO = 0;
+  GLuint hudVBO = 0;
+  GLuint hudProgram = 0;
+
+
 private:
 
   //Render meshes GLSL program
