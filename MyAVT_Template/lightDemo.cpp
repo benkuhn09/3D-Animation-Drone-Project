@@ -1,4 +1,4 @@
- //
+//
 // AVT 2025: Texturing with Phong Shading and Text rendered with TrueType library
 // The text rendering was based on https://dev.to/shreyaspranav/how-to-render-truetype-fonts-in-opengl-using-stbtruetypeh-1p5k
 // You can also learn an alternative with FreeType text: https://learnopengl.com/In-Practice/Text-Rendering
@@ -49,7 +49,7 @@ gmu mu;
 
 //Object of class renderer to manage the rendering of meshes and ttf-based bitmap text
 Renderer renderer;
-	
+
 // Camera Position
 float camX, camY, camZ;
 float alpha = 57.0f, beta = 18.0f;
@@ -63,7 +63,7 @@ bool specialKeys[256] = { false };
 int startX, startY, tracking = 0;
 
 // Frame counting and FPS computation
-long myTime,timebase = 0,frame = 0;
+long myTime, timebase = 0, frame = 0;
 char s[32];
 
 bool fontLoaded = false;
@@ -203,6 +203,11 @@ struct Camera {
 Camera cams[3];
 int activeCam = 0;
 
+int   stencilMaskMeshID = -1;
+bool  showRearCam = true;   // toggle if you want
+float rearMaskSizePx = 220.0f; // diamond size in screen pixels
+float rearMaskMarginPx = 20.0f;  // margin from the window edges
+
 struct Drone {
 	float pos[3] = { -30.0f, 15.0f, 0.0f }; // world position (x,y,z)
 	float dirAngle = 90.0f;   // yaw (degrees) — heading in the XZ plane
@@ -234,7 +239,7 @@ bool gameOver = false;
 const float BATTERY_DRAIN_RATE = 2.0f;  // proportional to throttle
 const float COLLISION_PENALTY = 20.0f;   // lose 20% battery per crash
 
-float lastCollisionTime = -1.0f;  
+float lastCollisionTime = -1.0f;
 const float collisionCooldown = 1.0f; // 1 second delay between two collision penalties
 
 // HUD GL objects
@@ -347,8 +352,8 @@ void timer(int value)
 	std::string s = oss.str();
 	glutSetWindow(WindowHandle);
 	glutSetWindowTitle(s.c_str());
-    FrameCount = 0;
-    glutTimerFunc(1000, timer, 0);
+	FrameCount = 0;
+	glutTimerFunc(1000, timer, 0);
 }
 
 
@@ -431,7 +436,7 @@ void refresh(int value)
 		updateFlyingObjects(dt, now);
 		updateSmokeParticles(dt);
 	}
-	
+
 	glutPostRedisplay();
 	glutTimerFunc(16, refresh, 0);
 }
@@ -465,7 +470,7 @@ void initCity() {
 			city[i][j].meshID = (rand() % 2 == 0) ? 1 : 3;  // cube or cylinder
 			city[i][j].texMode = 2 + (rand() % 4);
 			if (city[i][j].texMode == 4) { // skyscraper_glass.jpg
-				city[i][j].meshID = (city[i][j].meshID == 3 ? glassCubeMeshID:glassCylMeshID);
+				city[i][j].meshID = (city[i][j].meshID == 3 ? glassCubeMeshID : glassCylMeshID);
 			}
 			/* initializing offsets for building. used for collision. */
 			buildingOffset[i][j][0] = 0.0f;
@@ -503,8 +508,8 @@ void computeBuildingAABB(int i, int j, float outMin[3], float outMax[3]) {
 		outMax[0] = baseX + scaleX * 0.5f;
 		outMin[2] = baseZ - scaleZ * 0.5f;
 		outMax[2] = baseZ + scaleZ * 0.5f;
-		outMin[1] = yOff;    
-		outMax[1] = yOff + 1.5f*h;   // full height above
+		outMin[1] = yOff;
+		outMax[1] = yOff + 1.5f * h;   // full height above
 	}
 	else {
 		// Cube: spans full [0,scale] instead of centered
@@ -613,7 +618,7 @@ void computeDroneAABB(const Drone& drone, float outMin[3], float outMax[3]) {
 
 
 void computeFlyingObjectAABB(const FlyingObject& o, float outMin[3], float outMax[3]) {
-	
+
 	mu.pushMatrix(gmu::MODEL);
 	mu.loadIdentity(gmu::MODEL);
 
@@ -1065,35 +1070,14 @@ void renderSmokeParticles(const Camera& cam) {
 	glDisable(GL_BLEND);
 }
 
+static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
+	
 
-void renderSim(void) {
-
-	FrameCount++;
-
-	float currentTime = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
-	float deltaTime = currentTime - lastTime;
-	lastTime = currentTime;
-
-	if (!paused) {
-		animate(deltaTime);
-	}
-
-	float distance = 20.0f; // how far behind
-	float height = 10.0f;  // how far above
-	// apply offsets from mouse
-	float yawRad = (drone.dirAngle + cam2_yawOffset) * 3.14159f / 180.0f;
-	float pitchRadC = cam2_pitchOffset * 3.14159f / 180.0f;
-
-	cams[2].pos[0] = drone.pos[0] - sin(yawRad) * cos(pitchRadC) * distance;
-	cams[2].pos[1] = drone.pos[1] + height + sin(pitchRadC) * distance;
-	cams[2].pos[2] = drone.pos[2] - cos(yawRad) * cos(pitchRadC) * distance;
-
-	cams[2].target[0] = drone.pos[0];
-	cams[2].target[1] = drone.pos[1];
-	cams[2].target[2] = drone.pos[2];
-
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+	// === paste the same world drawing you already have ===
+	// (floor; opaque buildings; transparent buildings with blend & depth mask; package; drone;
+	//  flying objects; beam; smoke particles)
+	// Copy that block from renderSim and place it here UNCHANGED.
+	// Make sure this helper does NOT draw HUD/text.
 	renderer.activateRenderMeshesShaderProg(); // use the required GLSL program to draw the meshes with illumination
 	int depthFog = 1; // 0 = z-based, 1 = radial
 	float fogColor[3] = { 0.5f, 0.5f, 0.6f }; // light gray-blue
@@ -1130,17 +1114,14 @@ void renderSim(void) {
 	mu.loadIdentity(gmu::MODEL);
 	mu.loadIdentity(gmu::PROJECTION);
 
-	Camera& cam = cams[activeCam];
+	//Camera& camr = cams[activeCam];
 	// switch between perspective vs ortho
 	if (cam.type == 0) {
-		// perspective camera
-		mu.perspective(53.13f, aspectRatio, 0.1f, 1000.0f);
+		mu.perspective(53.13f, aspect, 0.1f, 1000.0f);
 	}
 	else {
-		// orthographic camera
-		float size = 30.0f;  // zoom level
-		mu.ortho(-size * aspectRatio, size * aspectRatio,
-			-size, size, 0.1f, 1000.0f);
+		float size = 30.0f;
+		mu.ortho(-size * aspect, size * aspect, -size, size, 0.1f, 1000.0f);
 	}
 	// then apply the camera view transform
 	mu.loadIdentity(gmu::VIEW);
@@ -1165,7 +1146,7 @@ void renderSim(void) {
 	renderer.setPointLights(pointLightEye, pointLightColor, pointLightsOn);
 
 	// Spotlights
-	
+
 	float yawRadians = drone.dirAngle * 3.14159f / 180.0f;
 	float pitchRad = drone.pitch * 3.14159f / 180.0f;
 
@@ -1231,7 +1212,7 @@ void renderSim(void) {
 	renderer.setSpotLights(spotEyePos, spotEyeDir, spotColor, spotLightsOn, spotCutOff);
 
 	dataMesh data;
-	
+
 	// Draw the floor - myMeshes[0] contains the quad object
 	mu.pushMatrix(gmu::MODEL);
 	mu.translate(gmu::MODEL, 0.0f, 0.0f, 0.0f);
@@ -1243,7 +1224,7 @@ void renderSim(void) {
 	data.meshID = 0;
 	data.texMode = 6; //two texels blended
 	data.vm = mu.get(gmu::VIEW_MODEL),
-	data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+		data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 	data.normal = mu.getNormalMatrix();
 	renderer.renderMesh(data);
 	mu.popMatrix(gmu::MODEL);
@@ -1333,7 +1314,7 @@ void renderSim(void) {
 
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
-	
+
 	// render package
 	if (package.active && packageMeshID >= 0) {
 		mu.pushMatrix(gmu::MODEL);
@@ -1418,7 +1399,7 @@ void renderSim(void) {
 	mu.popMatrix(gmu::MODEL);
 
 	for (const auto& o : flyingObjects) {
-		
+
 		mu.pushMatrix(gmu::MODEL);
 		mu.translate(gmu::MODEL, o.pos[0], o.pos[1], o.pos[2]);
 		if (o.rotAxis == 0) mu.rotate(gmu::MODEL, o.rotAngle, 1.0f, 0.0f, 0.0f);
@@ -1436,7 +1417,7 @@ void renderSim(void) {
 		data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 		data.normal = mu.getNormalMatrix();
 
-		
+
 		renderer.renderMesh(data);
 		mu.popMatrix(gmu::MODEL);
 
@@ -1478,7 +1459,198 @@ void renderSim(void) {
 	}
 
 	renderSmokeParticles(cams[activeCam]);
+}
 
+static void drawHudMaskBorderCore(float cx, float cy, float sizePx) {
+	int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+	const float W = (float)vp[2], H = (float)vp[3];
+
+	// --- HUD state: no depth, no stencil; blend ok; no cull; no depth writes
+	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
+	GLboolean stencilWasOn = glIsEnabled(GL_STENCIL_TEST);
+	GLboolean blendWasOn = glIsEnabled(GL_BLEND);
+	GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
+
+	if (stencilWasOn) glDisable(GL_STENCIL_TEST);
+	if (depthWasOn)   glDisable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE);
+	if (!blendWasOn)  glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	if (cullWasOn)    glDisable(GL_CULL_FACE);
+
+	renderer.activateRenderMeshesShaderProg();
+
+	mu.pushMatrix(gmu::PROJECTION);
+	mu.loadIdentity(gmu::PROJECTION);
+	mu.ortho(0.0f, W, 0.0f, H, -1.0f, 1.0f);
+
+	mu.loadIdentity(gmu::VIEW);
+	mu.loadIdentity(gmu::MODEL);
+	mu.translate(gmu::MODEL, cx, cy, 0.0f);
+	mu.scale(gmu::MODEL, sizePx, sizePx, 1.0f);
+
+	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+	mu.computeNormalMatrix3x3();
+
+	// temporarily color it
+	float savedDiffuse[4];
+	memcpy(savedDiffuse, renderer.myMeshes[stencilMaskMeshID].mat.diffuse, sizeof(savedDiffuse));
+	float yellow[4] = { 1,1,0,1 };
+	memcpy(renderer.myMeshes[stencilMaskMeshID].mat.diffuse, yellow, sizeof(yellow));
+
+	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	glLineWidth(2.0f);
+
+	dataMesh d{};
+	d.meshID = stencilMaskMeshID;
+	d.texMode = 0;
+	d.vm = mu.get(gmu::VIEW_MODEL);
+	d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+	d.normal = mu.getNormalMatrix();
+	renderer.renderMesh(d);
+
+	// restore
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	memcpy(renderer.myMeshes[stencilMaskMeshID].mat.diffuse, savedDiffuse, sizeof(savedDiffuse));
+	mu.popMatrix(gmu::PROJECTION);
+
+	if (cullWasOn)    glEnable(GL_CULL_FACE);
+	if (!blendWasOn)  glDisable(GL_BLEND);
+	glDepthMask(GL_TRUE);
+	if (depthWasOn)   glEnable(GL_DEPTH_TEST);
+	if (stencilWasOn) glEnable(GL_STENCIL_TEST);
+}
+
+
+void renderSim(void) {
+
+	FrameCount++;
+
+	float currentTime = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+	float deltaTime = currentTime - lastTime;
+	lastTime = currentTime;
+
+	if (!paused) {
+		animate(deltaTime);
+	}
+
+	float distance = 20.0f; // how far behind
+	float height = 10.0f;  // how far above
+	// apply offsets from mouse
+	float yawRad = (drone.dirAngle + cam2_yawOffset) * 3.14159f / 180.0f;
+	float pitchRadC = cam2_pitchOffset * 3.14159f / 180.0f;
+
+	cams[2].pos[0] = drone.pos[0] - sin(yawRad) * cos(pitchRadC) * distance;
+	cams[2].pos[1] = drone.pos[1] + height + sin(pitchRadC) * distance;
+	cams[2].pos[2] = drone.pos[2] - cos(yawRad) * cos(pitchRadC) * distance;
+
+	cams[2].target[0] = drone.pos[0];
+	cams[2].target[1] = drone.pos[1];
+	cams[2].target[2] = drone.pos[2];
+
+	glStencilMask(0xFF);
+	glClearStencil(0);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+	if (showRearCam) {
+		// --- STENCIL MASK PASS (screen-space quad writes 1s) ---
+		glStencilMask(0xFF);
+		glDisable(GL_DEPTH_TEST);
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+		glEnable(GL_STENCIL_TEST);
+		glStencilFunc(GL_ALWAYS, 1, 0xFF);
+		glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
+
+		// compute inset rect (in pixels)
+		int vp[4];
+		glGetIntegerv(GL_VIEWPORT, vp);
+		float W = float(vp[2]), H = float(vp[3]);
+		float size = rearMaskSizePx, margin = rearMaskMarginPx;
+
+		// center coordinates of inset mask
+		float cx = W - margin - size * 0.5f;
+		float cy = margin + size * 0.5f;
+
+		// --- define inset viewport region (square) ---
+		int insetW = (int)size;
+		int insetH = (int)size;
+		int insetX = (int)(W - margin - size);
+		int insetY = (int)margin;
+
+		// render the mask quad in HUD-ortho via your renderer
+		renderer.activateRenderMeshesShaderProg();
+		mu.pushMatrix(gmu::PROJECTION);
+		mu.loadIdentity(gmu::PROJECTION);
+		mu.ortho(0.0f, W, 0.0f, H, -1.0f, 1.0f);
+
+		mu.loadIdentity(gmu::VIEW);
+		mu.loadIdentity(gmu::MODEL);
+		mu.translate(gmu::MODEL, cx, cy, 0.0f);
+		mu.scale(gmu::MODEL, size, size, 1.0f);
+
+		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+		mu.computeNormalMatrix3x3();
+
+		dataMesh d{};
+		d.meshID = stencilMaskMeshID; // your 1x1 quad
+		d.texMode = 0;
+		d.vm = mu.get(gmu::VIEW_MODEL);
+		d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+		d.normal = mu.getNormalMatrix();
+		renderer.renderMesh(d);
+
+		mu.popMatrix(gmu::PROJECTION);
+
+		// restore write masks (keep stencil test enabled for next passes)
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+		glEnable(GL_DEPTH_TEST);
+		glStencilMask(0x00); // don't change stencil during scene
+
+		// --- MAIN WORLD PASS (full screen / active camera) ---
+		// Stencil has 1s in the inset; we just render normally here.
+		glStencilMask(0x00);            // don’t modify stencil
+		glStencilFunc(GL_NOTEQUAL, 1, 0xFF);  // draw everywhere EXCEPT where stencil == 1
+
+		drawWorldNoHUD_FromCamera(cams[activeCam], aspectRatio);
+
+
+		// --- INSET 3D PASS (top-down) INSIDE STENCIL, with its own viewport & depth ---
+		Camera top = cams[2];
+		top.type = 0; // perspective
+
+		// Look from above, but avoid forward // up colinearity by adding a tiny horizontal component
+		top.pos[0] = drone.pos[0];
+		top.pos[1] = drone.pos[1] + 40.0f;
+		top.pos[2] = drone.pos[2];
+
+		top.target[0] = drone.pos[0];
+		top.target[1] = drone.pos[1] - 5.0f;   // slight tilt down instead of exactly at the drone Y
+		top.target[2] = drone.pos[2] + 0.01f;  // tiny Z offset to break colinearity with up=(0,1,0) 
+
+		glStencilFunc(GL_EQUAL, 1, 0xFF);
+
+		// set inset viewport (square) so the projection aspect=1.0 looks right
+		int vpFull[4]; glGetIntegerv(GL_VIEWPORT, vpFull);
+		glViewport((GLint)insetX, (GLint)insetY, insetW, insetH);
+
+		// clear the DEPTH BUFFER ONLY inside the inset region, so inset has correct 3D
+		glEnable(GL_SCISSOR_TEST);
+		glScissor((GLint)insetX, (GLint)insetY, insetW, insetH);
+		glClear(GL_DEPTH_BUFFER_BIT);
+		glDisable(GL_SCISSOR_TEST);
+
+		// proper 3D inside inset
+		glEnable(GL_DEPTH_TEST);
+		glDepthMask(GL_TRUE);
+
+		// draw inset with square aspect
+		drawWorldNoHUD_FromCamera(top, 1.0f);
+
+		// restore full viewport & state
+		glViewport(vpFull[0], vpFull[1], vpFull[2], vpFull[3]);
+		glDisable(GL_STENCIL_TEST);
+		glStencilMask(0xFF);
+	}
 	//Render text (bitmap fonts) in screen coordinates. So use ortoghonal projection with viewport coordinates.
 	//Each glyph quad texture needs just one byte color channel: 0 in background and 1 for the actual character pixels. Use it for alpha blending
 	//text to be rendered in last place to be in front of everything
@@ -1488,10 +1660,23 @@ void renderSim(void) {
 		gameOver = true;
 	}
 
-	// Always visible title
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
 	drawText2D("2025 Drone Project", 100, 200, 0.5f, 1.0f, 1.0f, 1.0f);
 
-	// PAUSED SCREEN 
+	if (showRearCam) {
+		int vpHUD[4]; glGetIntegerv(GL_VIEWPORT, vpHUD);
+		float W = (float)vpHUD[2], H = (float)vpHUD[3];
+		float size = rearMaskSizePx, margin = rearMaskMarginPx;
+		float cx = W - margin - size * 0.5f;
+		float cy = margin + size * 0.5f;
+		drawHudMaskBorderCore(cx, cy, size);
+	}
+
 	if (paused) {
 		int textX = WinX / 2 - 100;
 		int textY = WinY / 2;
@@ -1524,6 +1709,9 @@ void renderSim(void) {
 		drawText2D("Press R to restart", textX - 40, textY - 60, 0.8f, 1.0f, 1.0f, 1.0f);
 	}
 
+	glDisable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
 
 	glutSwapBuffers();
 }
@@ -1547,18 +1735,18 @@ void keyboardDown(unsigned char key, int x, int y) {
 	case 'c': pointLightsOn = !pointLightsOn; break;
 	case 'h': spotLightsOn = !spotLightsOn; break;
 
-	/*case 'l':
-		spotlight_mode = !spotlight_mode;
-		printf(spotlight_mode ? "Point light disabled. Spot light enabled\n"
-			: "Spot light disabled. Point light enabled\n");
-		break;*/
+		/*case 'l':
+			spotlight_mode = !spotlight_mode;
+			printf(spotlight_mode ? "Point light disabled. Spot light enabled\n"
+				: "Spot light disabled. Point light enabled\n");
+			break;*/
 
-	/*case 'r':
-		alpha = 57.0f; beta = 18.0f; r = 45.0f;
-		camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
-		camZ = r * cos(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
-		camY = r * sin(beta * 3.14f / 180.0f);
-		break;*/
+			/*case 'r':
+				alpha = 57.0f; beta = 18.0f; r = 45.0f;
+				camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
+				camZ = r * cos(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
+				camY = r * sin(beta * 3.14f / 180.0f);
+				break;*/
 
 	case 'm': glEnable(GL_MULTISAMPLE); break;
 	case 'n': directionalLightOn = !directionalLightOn; break;
@@ -1584,7 +1772,7 @@ void keyboardDown(unsigned char key, int x, int y) {
 
 	case 'r':
 		if (gameOver) {
-			resetDrone();           
+			resetDrone();
 			batteryLevel = 100.0f;
 			gameOver = false;
 		}
@@ -1616,7 +1804,7 @@ void specialUp(int key, int x, int y) {
 void processMouseButtons(int button, int state, int xx, int yy)
 {
 	// start tracking the mouse
-	if (state == GLUT_DOWN)  {
+	if (state == GLUT_DOWN) {
 		startX = xx;
 		startY = yy;
 		if (button == GLUT_LEFT_BUTTON)
@@ -1701,10 +1889,10 @@ void mouseWheel(int wheel, int direction, int x, int y) {
 
 	camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
 	camZ = r * cos(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
-	camY = r *   						     sin(beta * 3.14f / 180.0f);
+	camY = r * sin(beta * 3.14f / 180.0f);
 
-//  uncomment this if not using an idle or refresh func
-//	glutPostRedisplay();
+	//  uncomment this if not using an idle or refresh func
+	//	glutPostRedisplay();
 }
 
 
@@ -1754,7 +1942,7 @@ void buildScene()
 	amesh.mat.texCount = texcount;
 	renderer.myMeshes.push_back(amesh);
 
-	
+
 	// create geometry and VAO of the cube
 	amesh = createCube();
 	memcpy(amesh.mat.ambient, ambNeutral, 4 * sizeof(float));
@@ -1818,7 +2006,7 @@ void buildScene()
 
 	}
 
-	
+
 
 	// Drone body(flattened cube)
 	{
@@ -1852,6 +2040,13 @@ void buildScene()
 		droneRotorMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
+	{
+		MyMesh mask = createQuad(1.0f, 1.0f);
+		mask.mat.texCount = 0;
+		renderer.myMeshes.push_back(mask);
+		stencilMaskMeshID = (int)renderer.myMeshes.size() - 1;
+	}
+
 	// Wireframe cube for AABB debug drawing
 	{
 		MyMesh wire = createCube();  // unit cube in [0,1]^3
@@ -1882,11 +2077,11 @@ void buildScene()
 	//renderer.myMeshes.push_back(amesh);
 
 	//The truetypeInit creates a texture object in TexObjArray for storing the fontAtlasTexture
-	
+
 	fontLoaded = renderer.truetypeInit(fontPathFile);
 	if (!fontLoaded)
 		cerr << "Fonts not loaded\n";
-	else 
+	else
 		cerr << "Fonts loaded\n";
 
 	printf("\nNumber of Texture Objects is %d\n\n", renderer.TexObjArray.getNumTextureObjects());
@@ -2001,21 +2196,23 @@ void buildScene()
 // Main function
 //
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
 
-//  GLUT initialization
+	//  GLUT initialization
 	glutInit(&argc, argv);
-	glutInitDisplayMode(GLUT_DEPTH|GLUT_DOUBLE|GLUT_RGBA|GLUT_MULTISAMPLE);
+	glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA | GLUT_STENCIL | GLUT_MULTISAMPLE);
+	glClearStencil(0x0);
+	glEnable(GL_STENCIL_TEST);
 
-	glutInitContextVersion (4, 3);
-	glutInitContextProfile (GLUT_CORE_PROFILE );
+	glutInitContextVersion(4, 3);
+	glutInitContextProfile(GLUT_CORE_PROFILE);
 	glutInitContextFlags(GLUT_FORWARD_COMPATIBLE | GLUT_DEBUG);
 
-	glutInitWindowPosition(100,100);
+	glutInitWindowPosition(100, 100);
 	glutInitWindowSize(WinX, WinY);
 	WindowHandle = glutCreateWindow(CAPTION);
 
-//  Callback Registration
+	//  Callback Registration
 	glutDisplayFunc(renderSim);
 	glutReshapeFunc(changeSize);
 
@@ -2023,20 +2220,20 @@ int main(int argc, char **argv) {
 	glutIdleFunc(renderSim);  // Use it for maximum performance
 	glutTimerFunc(0, refresh, 0);    //use it to to get 60 FPS whatever
 
-//	Mouse and Keyboard Callbacks
+	//	Mouse and Keyboard Callbacks
 	glutKeyboardFunc(keyboardDown);
 	glutKeyboardUpFunc(keyboardUp);
 	glutSpecialFunc(specialDown);
 	glutSpecialUpFunc(specialUp);
 	glutMouseFunc(processMouseButtons);
 	glutMotionFunc(processMouseMotion);
-	glutMouseWheelFunc ( mouseWheel ) ;
-	
+	glutMouseWheelFunc(mouseWheel);
 
-//	return from main loop
+
+	//	return from main loop
 	glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS);
 
-//	Init GLEW
+	//	Init GLEW
 	glewExperimental = GL_TRUE;
 	glewInit();
 
@@ -2046,10 +2243,10 @@ int main(int argc, char **argv) {
 	glEnable(GL_MULTISAMPLE);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
-	printf ("Vendor: %s\n", glGetString (GL_VENDOR));
-	printf ("Renderer: %s\n", glGetString (GL_RENDERER));
-	printf ("Version: %s\n", glGetString (GL_VERSION));
-	printf ("GLSL: %s\n", glGetString (GL_SHADING_LANGUAGE_VERSION));
+	printf("Vendor: %s\n", glGetString(GL_VENDOR));
+	printf("Renderer: %s\n", glGetString(GL_RENDERER));
+	printf("Version: %s\n", glGetString(GL_VERSION));
+	printf("GLSL: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 
 	/* Initialization of DevIL */
 	if (ilGetInteger(IL_VERSION_NUM) < IL_VERSION)
@@ -2061,9 +2258,9 @@ int main(int argc, char **argv) {
 
 	buildScene();
 
-	if(!renderer.setRenderMeshesShaderProg("shaders/mesh.vert", "shaders/mesh.frag") || 
+	if (!renderer.setRenderMeshesShaderProg("shaders/mesh.vert", "shaders/mesh.frag") ||
 		!renderer.setRenderTextShaderProg("shaders/ttf.vert", "shaders/ttf.frag"))
-	return(1);
+		return(1);
 
 	renderer.initBatteryHUD();
 
@@ -2072,6 +2269,3 @@ int main(int argc, char **argv) {
 
 	return(0);
 }
-
-
-
