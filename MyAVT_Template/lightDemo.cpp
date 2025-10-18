@@ -32,6 +32,7 @@
 #include "mathUtility.h"
 #include "model.h"
 #include "texture.h"
+#include "flare.h" 
 
 using namespace std;
 
@@ -334,7 +335,6 @@ int droneRotorMeshID = -1;
 int glassCubeMeshID = -1;
 int glassCylMeshID = -1;
 
-
 static inline float frand(float a, float b) {
 	return a + (b - a) * (rand() / (float)RAND_MAX);
 }
@@ -343,6 +343,54 @@ static inline void normalize3(float v[3]) {
 	if (L > 0.0f) { v[0] /= L; v[1] /= L; v[2] /= L; }
 }
 
+
+// ----- Lens flare globals -----
+bool flareEffect = false;      // toggled with 'f'
+FLARE_DEF gFlare;              // parsed from flare.txt
+GLuint FlareTextureArray[NTEXTURES] = { 0 };  // crcl, flar, hxgn, ring, sun
+// we'll reuse the smoke billboard quad for flare elements:
+static inline int flareQuadMeshID() { return smokeQuadMeshID; }
+
+static int getTextureId(char* name) {
+	for (int i = 0; i < NTEXTURES; ++i) {
+		if (strncmp(name, flareTextureNames[i], (int)strlen(name)) == 0) return i;
+	}
+	return -1;
+}
+
+void loadFlareFile(FLARE_DEF* flare, char* /*filename*/) {
+	int n = 0;
+	FILE* f = fopen("assets/flare.txt", "r");
+	if (!f) f = fopen("flare.txt", "r");
+	memset(flare, 0, sizeof(FLARE_DEF));
+	if (!f) { printf("Flare file opening error\n"); return; }
+
+	char buf[256];
+	fgets(buf, sizeof(buf), f);
+	sscanf(buf, "%f %f", &flare->fScale, &flare->fMaxSize);
+
+	while (!feof(f) && n < FLARE_MAXELEMENTSPERFLARE) {
+		char  name[8] = { 0 };
+		double dDist = 0.0, dSize = 0.0;
+		float color[4]; // A R G B
+		int fields = 0;
+		fgets(buf, sizeof(buf), f);
+		fields = sscanf(buf, "%4s %lf %lf ( %f %f %f %f )", name, &dDist, &dSize, &color[3], &color[0], &color[1], &color[2]);
+		if (fields == 7) {
+			for (int i = 0;i < 4;++i) color[i] = std::max(0.0f, std::min(1.0f, color[i] / 255.0f));
+			int id = getTextureId(name);
+			if (id < 0) printf("Flare texture name '%s' not recognized\n", name);
+			else flare->element[n].textureId = id;
+
+			flare->element[n].fDistance = (float)dDist;
+			flare->element[n].fSize = (float)dSize;
+			memcpy(flare->element[n].matDiffuse, color, 4 * sizeof(float));
+			++n;
+		}
+	}
+	flare->nPieces = n;
+	fclose(f);
+}
 /// ::::::::::::::::::::::::::::::::::::::::::::::::CALLBACK FUNCIONS:::::::::::::::::::::::::::::::::::::::::::::::::://///
 
 void timer(int value)
@@ -1054,7 +1102,7 @@ void renderSmokeParticles(const Camera& cam) {
 
 		dataMesh d{};
 		d.meshID = smokeQuadMeshID;
-		d.texMode = 7; // your smoke texture mode
+		d.texMode = 10; // your smoke texture mode
 		d.vm = mu.get(gmu::VIEW_MODEL);
 		d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 		d.normal = mu.getNormalMatrix();
@@ -1522,6 +1570,136 @@ static void drawHudMaskBorderCore(float cx, float cy, float sizePx) {
 }
 
 
+static bool worldToScreen_activeCam(const float world[4], int& outX, int& outY) {
+	int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+
+	mu.pushMatrix(gmu::PROJECTION);
+	mu.pushMatrix(gmu::VIEW);
+
+	mu.loadIdentity(gmu::PROJECTION);
+	mu.perspective(53.13f, aspectRatio, 0.1f, 1000.0f);
+
+	mu.loadIdentity(gmu::VIEW);
+	mu.lookAt(cams[activeCam].pos[0], cams[activeCam].pos[1], cams[activeCam].pos[2],
+		cams[activeCam].target[0], cams[activeCam].target[1], cams[activeCam].target[2], 0, 1, 0);
+
+	// ---- FIX: copy to a mutable vector (ensure w = 1 for points, 0 for directions)
+	float wv[4] = { world[0], world[1], world[2], world[3] };
+
+	float eye[4];  mu.multMatrixPoint(gmu::VIEW, wv, eye);
+	float clip[4]; mu.multMatrixPoint(gmu::PROJECTION, eye, clip);
+
+	mu.popMatrix(gmu::VIEW);
+	mu.popMatrix(gmu::PROJECTION);
+
+	if (fabsf(clip[3]) < 1e-6f) return false;
+
+	float ndcX = clip[0] / clip[3];
+	float ndcY = clip[1] / clip[3];
+
+	outX = (int)(vp[0] + (ndcX * 0.5f + 0.5f) * vp[2]);
+	outY = (int)(vp[1] + (ndcY * 0.5f + 0.5f) * vp[3]);
+	return true;
+}
+
+
+void render_flare(FLARE_DEF* flare, int lx, int ly, int* m_viewport) {
+	auto clampi = [](int x, int a, int b) { return x < a ? a : (x > b ? b : x); };
+	
+	// Save GL state and set HUD blending
+	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
+	GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
+	GLboolean blendWasOn = glIsEnabled(GL_BLEND);
+	if (depthWasOn) glDisable(GL_DEPTH_TEST);
+	if (cullWasOn)  glDisable(GL_CULL_FACE);
+	if (!blendWasOn) glEnable(GL_BLEND);
+
+	glBlendEquation(GL_FUNC_ADD);
+	glBlendFunc(GL_ONE, GL_ONE);
+	glDepthMask(GL_FALSE);
+
+	const int x0 = m_viewport[0], y0 = m_viewport[1];
+	const int W = m_viewport[2], H = m_viewport[3];
+	const int xmax = x0 + W - 1, ymax = y0 + H - 1;
+
+	const int cx = x0 + (int)(0.5f * W) - 1;
+	const int cy = y0 + (int)(0.5f * H) - 1;
+
+	const float maxflaredist = sqrtf((float)(cx * cx + cy * cy));
+	const float flaredist = sqrtf((float)((lx - cx) * (lx - cx) + (ly - cy) * (ly - cy)));
+	const float scaleDistance = (maxflaredist - flaredist) / maxflaredist;
+	const float flareMaxSize = (float)W * flare->fMaxSize;
+	const float flareScale = (float)W * flare->fScale;
+
+	// destination (mirror point across screen center)
+	const int dx = clampi(cx + (cx - lx), x0, xmax);
+	const int dy = clampi(cy + (cy - ly), y0, ymax);
+
+	// HUD ortho
+	renderer.activateRenderMeshesShaderProg();
+	mu.pushMatrix(gmu::PROJECTION);
+	mu.loadIdentity(gmu::PROJECTION);
+	mu.ortho(0.0f, (float)W, 0.0f, (float)H, -1.0f, 1.0f);
+
+	mu.loadIdentity(gmu::VIEW);
+
+	// Ensure shader samplers think TU9 == 9 (you already do this earlier each frame)
+	// renderer.setTexUnit(9, 9);
+
+	for (int i = 0; i < flare->nPieces; ++i) {
+		// position along center<->dest line
+		int px = (int)((1.0f - flare->element[i].fDistance) * lx + flare->element[i].fDistance * dx);
+		int py = (int)((1.0f - flare->element[i].fDistance) * ly + flare->element[i].fDistance * dy);
+		px = clampi(px, x0, xmax);
+		py = clampi(py, y0, ymax);
+
+		int width = (int)(scaleDistance * flareScale * flare->element[i].fSize);
+		if (width > (int)flareMaxSize) width = (int)flareMaxSize;
+		int height = (int)((float)H / (float)W * (float)width);
+		if (width <= 1) continue;
+
+		// set color (diffuse) with alpha scaled by distance
+		float diffuse[4];
+		memcpy(diffuse, flare->element[i].matDiffuse, sizeof(diffuse));
+		diffuse[3] *= scaleDistance;
+
+		// Bind the flare texture to TU9 (the shader will sample texmap9 in texMode 7)
+		glActiveTexture(GL_TEXTURE9);
+		glBindTexture(GL_TEXTURE_2D, FlareTextureArray[flare->element[i].textureId]);
+
+		// Place & scale a 1x1 quad (we reuse the smoke billboard quad)
+		mu.pushMatrix(gmu::MODEL);
+		mu.translate(gmu::MODEL, (float)px, (float)py, 0.0f);  // bottom-left anchor (matches template)
+		mu.scale(gmu::MODEL, (float)width, (float)height, 1.0f);
+
+		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+		mu.computeNormalMatrix3x3();
+
+		dataMesh d{};
+		
+		d.meshID = flareQuadMeshID();   // smoke quad
+		d.texMode = 7;                  // "sprite * mat.diffuse"
+		d.vm = mu.get(gmu::VIEW_MODEL);
+		d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+		d.normal = mu.getNormalMatrix();
+
+		// push the color to this mesh for this draw
+		memcpy(renderer.myMeshes[d.meshID].mat.diffuse, diffuse, sizeof(diffuse));
+
+		renderer.renderMesh(d);
+		mu.popMatrix(gmu::MODEL);
+	}
+
+	mu.popMatrix(gmu::PROJECTION);
+
+	// restore GL state
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_TRUE);
+	if (!blendWasOn) glDisable(GL_BLEND);
+	if (cullWasOn)   glEnable(GL_CULL_FACE);
+	if (depthWasOn)  glEnable(GL_DEPTH_TEST);
+}
+
 void renderSim(void) {
 
 	FrameCount++;
@@ -1651,6 +1829,17 @@ void renderSim(void) {
 		glDisable(GL_STENCIL_TEST);
 		glStencilMask(0xFF);
 	}
+
+	if (flareEffect && pointLightsOn && !spotLightsOn) {
+		int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+
+		// Choose one point light to “flare”—template uses a single point light.
+		float Lw[4] = { pointLightPos[0][0], pointLightPos[0][1], pointLightPos[0][2], 1.0f };
+		int lx = 0, ly = 0;
+		if (worldToScreen_activeCam(Lw, lx, ly)) {
+			render_flare(&gFlare, lx, ly, vp);
+		}
+	}
 	//Render text (bitmap fonts) in screen coordinates. So use ortoghonal projection with viewport coordinates.
 	//Each glyph quad texture needs just one byte color channel: 0 in background and 1 for the actual character pixels. Use it for alpha blending
 	//text to be rendered in last place to be in front of everything
@@ -1778,8 +1967,14 @@ void keyboardDown(unsigned char key, int x, int y) {
 		}
 		break;
 
+	case 'l':
+		if (!spotLightsOn) 
+			flareEffect = !flareEffect;
+		break;
+
 
 	}
+
 }
 
 void keyboardUp(unsigned char key, int x, int y) {
@@ -1896,6 +2091,35 @@ void mouseWheel(int wheel, int direction, int x, int y) {
 }
 
 
+static GLuint loadTextureDevIL(const char* path) {
+	ILuint img = 0;
+	ilGenImages(1, &img);
+	ilBindImage(img);
+
+	if (!ilLoadImage((ILstring)path)) {
+		ilDeleteImages(1, &img);
+		fprintf(stderr, "DevIL failed to load %s\n", path);
+		return 0;
+	}
+
+	ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
+	int w = ilGetInteger(IL_IMAGE_WIDTH);
+	int h = ilGetInteger(IL_IMAGE_HEIGHT);
+	const void* data = ilGetData();
+
+	GLuint tex = 0;
+	glGenTextures(1, &tex);
+	glBindTexture(GL_TEXTURE_2D, tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+	glGenerateMipmap(GL_TEXTURE_2D);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	ilDeleteImages(1, &img);
+	return tex;
+}
 //
 // Scene building with basic geometry
 //
@@ -2187,6 +2411,14 @@ void buildScene()
 		smokeQuadMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
+	FlareTextureArray[0] = loadTextureDevIL("assets/crcl.tga");
+	FlareTextureArray[1] = loadTextureDevIL("assets/flar.tga");
+	FlareTextureArray[2] = loadTextureDevIL("assets/hxgn.tga");
+	FlareTextureArray[3] = loadTextureDevIL("assets/ring.tga");
+	FlareTextureArray[4] = loadTextureDevIL("assets/sun.tga");
+
+	// ---- Load flare definition ----
+	loadFlareFile(&gFlare, (FILE*)nullptr ? (char*)"assets/flare.txt" : (char*)"flare.txt");
 	// Create the initial list
 	initFlyingObjects();
 }

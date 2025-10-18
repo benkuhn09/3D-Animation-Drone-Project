@@ -181,6 +181,18 @@ void main() {
         baseColor = vec4(lighting * (texel.rgb * texel1.rgb), 1.0);
         alpha *= texel.a;
     }
+    else if (texMode == 7) {
+    vec4 t = texture(texmap9, DataIn.tex_coord);
+    vec3 rgb = t.rgb * t.a * mat.diffuse.rgb;
+    float a  = t.a * mat.diffuse.a;
+    baseColor = vec4(rgb, a);
+}
+    
+    else if (texMode == 8) {
+        vec4 t = texture(texmap9, DataIn.tex_coord);
+        vec3 rgb = t.rgb * mat.diffuse.rgb;  // <-- no * t.a
+        baseColor = vec4(rgb, 1.0);          // alpha unused with GL_ONE, GL_ONE
+    }
     else {
         texel = texture(texmap9, DataIn.tex_coord); // smoke particle
         baseColor = vec4(lighting * texel.rgb, 1.0);
