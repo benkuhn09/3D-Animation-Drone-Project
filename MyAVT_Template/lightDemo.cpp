@@ -335,6 +335,8 @@ int droneRotorMeshID = -1;
 int glassCubeMeshID = -1;
 int glassCylMeshID = -1;
 
+
+
 static inline float frand(float a, float b) {
 	return a + (b - a) * (rand() / (float)RAND_MAX);
 }
@@ -349,6 +351,39 @@ bool flareEffect = false;      // toggled with 'f'
 FLARE_DEF gFlare;              // parsed from flare.txt
 GLuint FlareTextureArray[NTEXTURES] = { 0 };  // crcl, flar, hxgn, ring, sun
 // we'll reuse the smoke billboard quad for flare elements:
+
+float sunAzimuthDeg = -30.0f;  // around Y (0 = +Z)
+float sunElevationDeg = 30;   // 0=horizon, 90=zenith
+float sunDistance = 90.0f;  // how far from scene center
+
+static void setSunFromAngles(float azDeg, float elDeg) {
+	const float PI = 3.1415926f;
+	float az = azDeg * PI / 180.0f;
+	float el = elDeg * PI / 180.0f;
+
+	// direction from sky to ground
+	float dir[3] = {
+		sinf(az) * cosf(el),
+		-sinf(el),                 // negative Y = pointing down
+		cosf(az) * cosf(el)
+	};
+
+	// use same dir for the directional light (w=0)
+	directionalLightPos[0] = dir[0];
+	directionalLightPos[1] = dir[1];
+	directionalLightPos[2] = dir[2];
+	directionalLightPos[3] = 0.0f;
+
+	// place point light along that dir, far from the center (0,0,0)
+	pointLightPos[0][0] = -dir[0] * sunDistance;
+	pointLightPos[0][1] = -dir[1] * sunDistance;
+	pointLightPos[0][2] = -dir[2] * sunDistance;
+	pointLightPos[0][3] = 1.0f;
+
+	// brighten it a bit since it’s far away (your shader supports >1.0 intensities)
+	pointLightColor[0][0] = pointLightColor[0][1] = pointLightColor[0][2] = 3.0f;
+}
+
 static inline int flareQuadMeshID() { return smokeQuadMeshID; }
 
 static int getTextureId(char* name) {
@@ -2125,6 +2160,7 @@ static GLuint loadTextureDevIL(const char* path) {
 //
 
 void buildScene()
+	
 {
 	//Texture Object definition
 	renderer.TexObjArray.texture2D_Loader("assets/stone.tga");
@@ -2138,6 +2174,7 @@ void buildScene()
 	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_residential.jpg");
 	renderer.TexObjArray.texture2D_Loader("assets/smoke_particle.png");
 
+	setSunFromAngles(sunAzimuthDeg, sunElevationDeg);
 	//Scene geometry with triangle meshes
 
 	MyMesh amesh;
