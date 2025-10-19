@@ -246,6 +246,8 @@ const float collisionCooldown = 1.0f; // 1 second delay between two collision pe
 // HUD GL objects
 GLuint hudVAO = 0, hudVBO = 0, hudProgram = 0;
 
+bool gPrintBillboardCoords = true;  // set false to stop printing
+
 
 struct Package {
 	int i, j;        // which building it's on (grid indices)
@@ -1103,6 +1105,169 @@ void drawText2D(const std::string& msg, int x, int y, float scale,
 	glEnable(GL_DEPTH_TEST);
 }
 
+void drawTextWithBackground(const std::string& msg, int x, int y, float scale,
+	float textR, float textG, float textB, float textA,
+	float bgR, float bgG, float bgB, float bgA,
+	float paddingX = 10.0f, float paddingY = 5.0f)
+{
+	if (!fontLoaded) return;
+
+	// --- estimate text size in pixels (same heuristic you used before) ---
+	float textWidth = msg.size() * 20.0f * scale;  // tune if you have a better measurer
+	float textHeight = 40.0f * scale;
+
+	// background rectangle in screen-pixel coords
+	float bgX = x - paddingX;
+	float bgY = y - paddingY;
+	float bgW = textWidth + 2.0f * paddingX;
+	float bgH = textHeight + 2.0f * paddingY;
+
+	// --- HUD state: depth off, blending on ---
+	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
+	GLboolean blendWasOn = glIsEnabled(GL_BLEND);
+	if (depthWasOn) glDisable(GL_DEPTH_TEST);
+	if (!blendWasOn) glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	// --- set up 2D ortho in pixels ---
+	int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+	mu.loadIdentity(gmu::MODEL);
+	mu.loadIdentity(gmu::VIEW);
+
+	mu.pushMatrix(gmu::PROJECTION);
+	mu.loadIdentity(gmu::PROJECTION);
+	mu.ortho((float)vp[0], (float)(vp[0] + vp[2] - 1),
+		(float)vp[1], (float)(vp[1] + vp[3] - 1),
+		-1.0f, 1.0f);
+
+	// --- render a colored quad via the renderer (no glBegin) ---
+	renderer.activateRenderMeshesShaderProg();
+
+	// position quad at the center of the bg rect, then scale to its size
+	mu.pushMatrix(gmu::MODEL);
+	mu.translate(gmu::MODEL, bgX + 0.5f * bgW, bgY + 0.5f * bgH, 0.0f);
+	mu.scale(gmu::MODEL, bgW, bgH, 1.0f);
+
+	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+	mu.computeNormalMatrix3x3();
+
+	dataMesh d{};
+	d.meshID = (smokeQuadMeshID >= 0) ? smokeQuadMeshID : stencilMaskMeshID; // any unit 1x1 quad
+	d.texMode = 0; // flat color
+	d.vm = mu.get(gmu::VIEW_MODEL);
+	d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+	d.normal = mu.getNormalMatrix();
+
+	// temporarily override the quad's diffuse with the bg color (incl. alpha)
+	float savedDiff[4];
+	memcpy(savedDiff, renderer.myMeshes[d.meshID].mat.diffuse, sizeof(savedDiff));
+	float bgCol[4] = { bgR, bgG, bgB, bgA };
+	memcpy(renderer.myMeshes[d.meshID].mat.diffuse, bgCol, sizeof(bgCol));
+
+	renderer.renderMesh(d);
+
+	// restore material + matrices
+	memcpy(renderer.myMeshes[d.meshID].mat.diffuse, savedDiff, sizeof(savedDiff));
+	mu.popMatrix(gmu::MODEL);
+	mu.popMatrix(gmu::PROJECTION);
+
+	// --- draw the text on top (uses your text shader path) ---
+	drawText2D(msg, x, y, scale, textR, textG, textB, textA);
+
+	// --- restore state ---
+	if (!blendWasOn) glDisable(GL_BLEND);
+	if (depthWasOn)  glEnable(GL_DEPTH_TEST);
+}
+
+static void estimateTextSize(const std::string& s, float size, float& outW, float& outH) {
+	// tuned to your 2D defaults: ~20 px advance and ~40 px line-height at size=1.0
+	outW = (float)s.size() * 0.20f * size; // world units after we scale the quad (see below)
+	outH = 0.40f * size;
+}
+
+static void makeBillboardAt(const float pos[3], const Camera& cam, float M[16]) {
+	// Compute direction from billboard to camera
+	float look[3] = {
+		cam.pos[0] - pos[0],
+		0.0f, // ignore vertical difference (cylindrical billboard)
+		cam.pos[2] - pos[2]
+	};
+	float len = sqrtf(look[0] * look[0] + look[2] * look[2]);
+	if (len < 1e-6f) {
+		// fallback
+		look[0] = 0.0f; look[2] = 1.0f; len = 1.0f;
+	}
+	look[0] /= len;
+	look[2] /= len;
+
+	// Compute right vector (world up = Y)
+	float right[3] = { look[2], 0.0f, -look[0] };
+
+	// Fill the matrix (column-major)
+	M[0] = right[0];  M[4] = 0.0f;  M[8] = look[0];  M[12] = pos[0];
+	M[1] = right[1];  M[5] = 1.0f;  M[9] = look[1];  M[13] = pos[1];
+	M[2] = right[2];  M[6] = 0.0f;  M[10] = look[2];  M[14] = pos[2];
+	M[3] = 0.0f;      M[7] = 0.0f;  M[11] = 0.0f;     M[15] = 1.0f;
+}
+
+// add params: quadScale, minQuadW, minQuadH
+static void renderBillboardLabelAt(const float worldPos[3], const Camera& cam,
+	const std::string& msg,
+	const float* txtRGBA = nullptr,
+	float textSizeWorld = 0.02)
+{
+	if (!fontLoaded) return;
+
+	// Text color (defaults to white)
+	float txCol[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	if (txtRGBA) memcpy(txCol, txtRGBA, 4 * sizeof(float));
+
+	// Billboard matrix that faces the camera (cylindrical)
+	float M[16];
+	makeBillboardAt(worldPos, cam, M);
+
+	// Estimate text size so we can center it nicely
+	float textW, textH;
+	estimateTextSize(msg, 1.0f, textW, textH);
+	const float worldW = textW * textSizeWorld;
+	const float worldH = textH * textSizeWorld;
+
+	mu.pushMatrix(gmu::MODEL);
+	mu.loadMatrix(gmu::MODEL, M);
+
+	// Small hover above the beam
+	mu.translate(gmu::MODEL, 0.0f, 0.15f * textSizeWorld, 0.0f);
+
+	// Center the text around the billboard origin
+	mu.pushMatrix(gmu::MODEL);
+	mu.translate(gmu::MODEL, -0.5f * worldW, -0.5f * worldH, 1e-3f); // tiny z to avoid z-fighting
+	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+
+	// Alpha-blended text
+	GLboolean blendWasOn = glIsEnabled(GL_BLEND);
+	if (!blendWasOn) glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	TextCommand t{};
+	t.str = msg;
+	t.position[0] = -0.5f * worldW / textSizeWorld / 0.25;
+	t.position[1] = 0.0f;
+	t.size = textSizeWorld;
+	t.color[0] = txCol[0]; t.color[1] = txCol[1];
+	t.color[2] = txCol[2]; t.color[3] = txCol[3];
+	t.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+	renderer.renderText(t);
+
+	// restore state
+	if (!blendWasOn) glDisable(GL_BLEND);
+
+	mu.popMatrix(gmu::MODEL);
+	mu.popMatrix(gmu::MODEL);
+}
+
+
+
+
 float lastTime = 0.0f;
 
 void renderSmokeParticles(const Camera& cam) {
@@ -1539,6 +1704,13 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		mu.popMatrix(gmu::MODEL);
 		glDepthMask(GL_TRUE);
 		glDisable(GL_BLEND);
+
+		// billboard label hovering above the same building (package source/destination)
+		float labelPos[3] = { beamPos[0], beamPos[1] + beamHeight * 1.05f, beamPos[2] };
+		std::string label = (!package.beingCarried) ? "Pick up here" : "Deliver here";
+
+		// smaller, cleaner white text above beam
+		renderBillboardLabelAt(labelPos, cam, label, nullptr, 0.02f);
 	}
 
 	renderSmokeParticles(cams[activeCam]);
@@ -1890,7 +2062,9 @@ void renderSim(void) {
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	drawText2D("2025 Drone Project", 100, 200, 0.5f, 1.0f, 1.0f, 1.0f);
+	drawTextWithBackground("2025 Drone Project", 100, 200, 0.5f,
+		1.0f, 1.0f, 1.0f, 1.0f,      // text color
+		0.0f, 0.0f, 0.0f, 0.5f);
 
 	if (showRearCam) {
 		int vpHUD[4]; glGetIntegerv(GL_VIEWPORT, vpHUD);
