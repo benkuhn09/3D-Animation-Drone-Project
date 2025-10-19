@@ -296,6 +296,17 @@ Building city[GRID_SIZE][GRID_SIZE];
 float buildingOffset[GRID_SIZE][GRID_SIZE][3];
 int beamMeshID = -1;
 
+bool  gPrintShadowCoords = true;   // toggle with 'k'
+int   gShadowPrintCooldownMs = 250; // throttle printing (ms)
+int   gLastShadowPrintMs = 0;
+
+static inline void applyMat4ToPoint(const float M[16], const float in[4], float out[4]) {
+	out[0] = M[0] * in[0] + M[4] * in[1] + M[8] * in[2] + M[12] * in[3];
+	out[1] = M[1] * in[0] + M[5] * in[1] + M[9] * in[2] + M[13] * in[3];
+	out[2] = M[2] * in[0] + M[6] * in[1] + M[10] * in[2] + M[14] * in[3];
+	out[3] = M[3] * in[0] + M[7] * in[1] + M[11] * in[2] + M[15] * in[3];
+}
+
 
 struct FlyingObject {
 	float pos[3];   // world position
@@ -792,6 +803,44 @@ static void computeRotorWorldPositions(const Drone& d, float out[4][3]) {
 	for (int i = 0; i < 4; ++i) xformPoint(M, local[i], out[i]);
 }
 
+static void debugPrintShadowCoords(const float S[16]) {
+	const int nowMs = glutGet(GLUT_ELAPSED_TIME);
+	if (!gPrintShadowCoords || (nowMs - gLastShadowPrintMs) < gShadowPrintCooldownMs) return;
+	gLastShadowPrintMs = nowMs;
+
+	auto printPt = [](const char* label, const float p4[4]) {
+		float x = p4[0] / p4[3], y = p4[1] / p4[3], z = p4[2] / p4[3];
+		printf("%s: (%.3f, %.3f, %.3f)\n", label, x, y, z);
+		};
+
+	// --- Drone body center (its origin is the body center) ---
+	float droneWorld[4] = { drone.pos[0], drone.pos[1], drone.pos[2], 1.0f };
+	float shadowBody[4]; applyMat4ToPoint(S, droneWorld, shadowBody);
+	printPt("Shadow DroneCenter", shadowBody);
+
+	// --- Drone rotors (use your existing helper) ---
+	float rotors[4][3]; computeRotorWorldPositions(drone, rotors);
+	for (int i = 0; i < 4; ++i) {
+		float r4[4] = { rotors[i][0], rotors[i][1], rotors[i][2], 1.0f };
+		float s4[4]; applyMat4ToPoint(S, r4, s4);
+		char buf[64]; snprintf(buf, sizeof(buf), "Shadow Rotor%d", i);
+		printPt(buf, s4);
+	}
+
+	// --- Flying objects (centers) ---
+	for (size_t i = 0; i < flyingObjects.size(); ++i) {
+		const auto& o = flyingObjects[i];
+		float ow[4] = { o.pos[0], o.pos[1], o.pos[2], 1.0f };
+		float so[4]; applyMat4ToPoint(S, ow, so);
+		char buf[64]; snprintf(buf, sizeof(buf), "Shadow FlyingObj%zu", i);
+		printPt(buf, so);
+	}
+
+	// Nice spacer so bursts are readable
+	printf("----\n");
+}
+
+
 static inline void emitSmokeBurstAt(const float src[3], const float n[3], int count = 15) {
 	// normalized normal (fallback up)
 	float nx = n[0], ny = n[1], nz = n[2];
@@ -1185,6 +1234,58 @@ static void estimateTextSize(const std::string& s, float size, float& outW, floa
 	outH = 0.40f * size;
 }
 
+static inline void computeShadowMatrixOnFloor(float S[16]) {
+	float plane[4] = { 0.0f, 1.0f, 0.0f, 0.0f };          // y = 0
+	float light[4];
+	// Use the active sun if available, else fall back to the first point light
+	if (directionalLightOn) {
+		// Use the *direction* of the light, not its position.
+		float lightDir[4] = {
+			-directionalLightPos[0],  // negate — shadow projects opposite light direction
+			-directionalLightPos[1],
+			-directionalLightPos[2],
+			 0.0f                     // w = 0 ? directional light (at infinity)
+		};
+		mu.shadow_matrix(S, plane, lightDir);
+	}
+	else {
+		// For point/spot lights, use the actual position
+		float lightPos[4] = {
+			pointLightPos[0][0],
+			pointLightPos[0][1],
+			pointLightPos[0][2],
+			pointLightPos[0][3]       // w = 1 ? positional light
+		};
+		mu.shadow_matrix(S, plane, lightPos);
+	}
+}
+
+struct ShadowMatGuard {
+	MyMesh* m = nullptr;
+	float   keepDiff[4]{}, keepAmb[4]{}, keepSpec[4]{}, keepEmi[4]{};
+	explicit ShadowMatGuard(MyMesh* mesh, float alpha = 0.9f) : m(mesh) {
+		memcpy(keepDiff, m->mat.diffuse, 4 * sizeof(float));
+		memcpy(keepAmb, m->mat.ambient, 4 * sizeof(float));
+		memcpy(keepSpec, m->mat.specular, 4 * sizeof(float));
+		memcpy(keepEmi, m->mat.emissive, 4 * sizeof(float));
+
+		float black[4] = { 0.0f, 0.0f, 0.0f, alpha };
+		memcpy(m->mat.diffuse, black, 4 * sizeof(float));
+		memcpy(m->mat.ambient, black, 4 * sizeof(float));
+
+		float zero4[4] = { 0,0,0,0 };
+		memcpy(m->mat.specular, zero4, 4 * sizeof(float));
+		memcpy(m->mat.emissive, zero4, 4 * sizeof(float));
+	}
+	~ShadowMatGuard() {
+		if (!m) return;
+		memcpy(m->mat.diffuse, keepDiff, 4 * sizeof(float));
+		memcpy(m->mat.ambient, keepAmb, 4 * sizeof(float));
+		memcpy(m->mat.specular, keepSpec, 4 * sizeof(float));
+		memcpy(m->mat.emissive, keepEmi, 4 * sizeof(float));
+	}
+};
+
 static void makeBillboardAt(const float pos[3], const Camera& cam, float M[16]) {
 	// Compute direction from billboard to camera
 	float look[3] = {
@@ -1486,6 +1587,136 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	data.normal = mu.getNormalMatrix();
 	renderer.renderMesh(data);
 	mu.popMatrix(gmu::MODEL);
+
+	// Planar SHADOWS (floor)
+// =====================
+	{
+		float S[16];
+		computeShadowMatrixOnFloor(S);
+
+		GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
+		if (cullWasOn) glDisable(GL_CULL_FACE);
+
+		debugPrintShadowCoords(S);
+
+		// 1) Enable blending to accumulate a dark tint
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		// 2) Offset so the projected geometry doesn’t Z-fight the floor
+		glEnable(GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(-1.0f, -1.0f);
+
+		// 3) VERY IMPORTANT: don’t write depth for the shadow pass
+		glDepthMask(GL_FALSE);
+
+		// We render the projected geometry in a very dark tint (no textures)
+		dataMesh sd{};
+		sd.texMode = 9; // flat material color path in your shader
+
+		// --------- Drone shadow ---------
+		if (droneBodyMeshID >= 0 && droneRotorMeshID >= 0) {
+			// Body
+			{
+				ShadowMatGuard matGuard(&renderer.myMeshes[droneBodyMeshID], 0.80f);
+
+				mu.pushMatrix(gmu::MODEL);
+				mu.multMatrix(gmu::MODEL, S);
+
+				mu.translate(gmu::MODEL, drone.pos[0], drone.pos[1], drone.pos[2]);
+				mu.rotate(gmu::MODEL, drone.dirAngle, 0.0f, 1.0f, 0.0f);
+				mu.rotate(gmu::MODEL, drone.pitch, 1.0f, 0.0f, 0.0f);
+				mu.rotate(gmu::MODEL, drone.roll, 0.0f, 0.0f, 1.0f);
+
+				mu.pushMatrix(gmu::MODEL);
+				mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f);
+				mu.scale(gmu::MODEL, 2.0f, 0.6f, 2.0f);
+
+				mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+				mu.computeNormalMatrix3x3();
+
+				sd.meshID = droneBodyMeshID;
+				sd.vm = mu.get(gmu::VIEW_MODEL);
+				sd.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+				sd.normal = mu.getNormalMatrix();
+				renderer.renderMesh(sd);
+
+				mu.popMatrix(gmu::MODEL);
+				mu.popMatrix(gmu::MODEL);
+			}
+
+			// Rotors
+			{
+				ShadowMatGuard matGuard(&renderer.myMeshes[droneRotorMeshID], 0.45f);
+
+				const float rotorHeight = 0.2f;
+				const float bodyScaleX = 2.0f, bodyScaleZ = 2.0f;
+				const float rotorMargin = 0.0f;
+				const float halfX = bodyScaleX * 0.5f + rotorMargin;
+				const float halfZ = bodyScaleZ * 0.5f + rotorMargin;
+
+				mu.pushMatrix(gmu::MODEL);
+				mu.multMatrix(gmu::MODEL, S);
+				mu.translate(gmu::MODEL, drone.pos[0], drone.pos[1], drone.pos[2]);
+				mu.rotate(gmu::MODEL, drone.dirAngle, 0, 1, 0);
+				mu.rotate(gmu::MODEL, drone.pitch, 1, 0, 0);
+				mu.rotate(gmu::MODEL, drone.roll, 0, 0, 1);
+
+				for (int ix = -1; ix <= 1; ix += 2) {
+					for (int iz = -1; iz <= 1; iz += 2) {
+						mu.pushMatrix(gmu::MODEL);
+						mu.translate(gmu::MODEL, ix * halfX, rotorHeight, iz * halfZ);
+						mu.translate(gmu::MODEL, 0.5f, 0.0f, 0.5f);
+						mu.scale(gmu::MODEL, 1.7f, 0.3f, 1.7f);
+
+						mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+						mu.computeNormalMatrix3x3();
+
+						sd.meshID = droneRotorMeshID;
+						sd.vm = mu.get(gmu::VIEW_MODEL);
+						sd.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+						sd.normal = mu.getNormalMatrix();
+						renderer.renderMesh(sd);
+
+						mu.popMatrix(gmu::MODEL);
+					}
+				}
+				mu.popMatrix(gmu::MODEL);
+			}
+		}
+
+		// --------- Flying objects shadows ---------
+		for (const auto& o : flyingObjects) {
+			if (o.meshID < 0) continue;
+
+			ShadowMatGuard matGuard(&renderer.myMeshes[o.meshID], 0.45f);
+
+			mu.pushMatrix(gmu::MODEL);
+			mu.multMatrix(gmu::MODEL, S);
+			mu.translate(gmu::MODEL, o.pos[0], o.pos[1], o.pos[2]);
+			if (o.rotAxis == 0)      mu.rotate(gmu::MODEL, o.rotAngle, 1, 0, 0);
+			else if (o.rotAxis == 1) mu.rotate(gmu::MODEL, o.rotAngle, 0, 1, 0);
+			else                     mu.rotate(gmu::MODEL, o.rotAngle, 0, 0, 1);
+			mu.scale(gmu::MODEL, o.size, o.size, o.size);
+
+			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+			mu.computeNormalMatrix3x3();
+
+			sd.meshID = o.meshID;
+			sd.vm = mu.get(gmu::VIEW_MODEL);
+			sd.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+			sd.normal = mu.getNormalMatrix();
+			renderer.renderMesh(sd);
+
+			mu.popMatrix(gmu::MODEL);
+		}
+
+		// 4) Restore state
+		glDepthMask(GL_TRUE);
+		glDisable(GL_POLYGON_OFFSET_FILL);
+		glDisable(GL_BLEND);
+		if (cullWasOn) glEnable(GL_CULL_FACE);
+	}
 
 	float spacing = 7.2f;
 	float floorSize = 65.0f;
@@ -2140,7 +2371,10 @@ void keyboardDown(unsigned char key, int x, int y) {
 	case '2': activeCam = 1; break;
 	case '3': activeCam = 2; break;
 
-	case 'c': pointLightsOn = !pointLightsOn; break;
+	case 'c':
+		pointLightsOn = !pointLightsOn;
+		if (pointLightsOn) directionalLightOn = false;
+		break;
 	case 'h': spotLightsOn = !spotLightsOn; break;
 
 		/*case 'l':
@@ -2157,7 +2391,10 @@ void keyboardDown(unsigned char key, int x, int y) {
 				break;*/
 
 	case 'm': glEnable(GL_MULTISAMPLE); break;
-	case 'n': directionalLightOn = !directionalLightOn; break;
+	case 'n': 
+		directionalLightOn = !directionalLightOn;
+		if (directionalLightOn) pointLightsOn = false; // ensure only one main source
+		break;
 	case 'f': fogEnabled = !fogEnabled; break;
 
 	case 'b': // toggle wire AABB

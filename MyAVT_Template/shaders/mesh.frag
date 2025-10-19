@@ -193,11 +193,16 @@ void main() {
         vec3 rgb = t.rgb * mat.diffuse.rgb;  // <-- no * t.a
         baseColor = vec4(rgb, 1.0);          // alpha unused with GL_ONE, GL_ONE
     }
+    else if (texMode == 9) {
+        baseColor = vec4(0.0, 0.0, 0.0, 1.0);
+        alpha = mat.diffuse.a;
+    }
     else {
         texel = texture(texmap9, DataIn.tex_coord); // smoke particle
         baseColor = vec4(lighting * texel.rgb, 1.0);
         alpha *= texel.a;
     }
+    
 
     // ---------- Fog (preserve your existing fog system) ----------
     float dist;
