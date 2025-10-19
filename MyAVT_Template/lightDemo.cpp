@@ -349,7 +349,7 @@ static inline void normalize3(float v[3]) {
 
 
 // ----- Lens flare globals -----
-bool flareEffect = false;      // toggled with 'f'
+bool flareEffect = false;      // toggled with 'l' (only when spotlights are OFF)
 FLARE_DEF gFlare;              // parsed from flare.txt
 GLuint FlareTextureArray[NTEXTURES] = { 0 };  // crcl, flar, hxgn, ring, sun
 // we'll reuse the smoke billboard quad for flare elements:
@@ -1273,23 +1273,31 @@ float lastTime = 0.0f;
 void renderSmokeParticles(const Camera& cam) {
 	if (g_smoke.empty() || smokeQuadMeshID < 0) return;
 
+	// --- make sure correct shader and state are active ---
+	renderer.activateRenderMeshesShaderProg();
+
+	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
+	
+
+	if (!depthWasOn) glEnable(GL_DEPTH_TEST);
+	
+
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // <- correct
 	glDepthMask(GL_FALSE);
 
 	for (const auto& p : g_smoke) {
-		float ageRatio = 1.0f - (p.life / p.maxLife);
-		float fade = 1.0f - ageRatio; // fade out with age
-		float scale = p.size * (0.8f + 0.5f * ageRatio); // slightly grow
+		if (p.life <= 0.0f) continue;
 
-		// compute billboard rotation to face camera
+		float ageRatio = 1.0f - (p.life / p.maxLife);
+		float fade = 1.0f - ageRatio;
+		float scale = p.size * (0.8f + 0.5f * ageRatio);
+
 		mu.pushMatrix(gmu::MODEL);
 		mu.translate(gmu::MODEL, p.pos[0], p.pos[1], p.pos[2]);
 
-		// remove rotation so it faces camera
 		float cx = cam.pos[0], cy = cam.pos[1], cz = cam.pos[2];
 		float dx = cx - p.pos[0];
-		float dy = cy - p.pos[1];
 		float dz = cz - p.pos[2];
 		float len = sqrtf(dx * dx + dz * dz);
 		float yaw = (len > 0.0001f) ? atan2f(dx, dz) * 180.0f / 3.14159f : 0.0f;
@@ -1302,12 +1310,11 @@ void renderSmokeParticles(const Camera& cam) {
 
 		dataMesh d{};
 		d.meshID = smokeQuadMeshID;
-		d.texMode = 10; // your smoke texture mode
+		d.texMode = 10;
 		d.vm = mu.get(gmu::VIEW_MODEL);
 		d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 		d.normal = mu.getNormalMatrix();
 
-		// override material alpha to fade out
 		renderer.myMeshes[d.meshID].mat.diffuse[3] = fade;
 
 		renderer.renderMesh(d);
@@ -1316,6 +1323,9 @@ void renderSmokeParticles(const Camera& cam) {
 
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);
+
+	
+	if (!depthWasOn) glDisable(GL_DEPTH_TEST);
 }
 
 static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
