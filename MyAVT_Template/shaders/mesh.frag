@@ -206,13 +206,66 @@ void main() {
         alpha = 1.0;
     }
     else if (texMode == 11) {
-        // Environment-mapped reflection
-        vec3 viewDir = normalize(-DataIn.fragPos);
-        vec3 reflDir = reflect(viewDir, normalize(DataIn.normal));
-        vec4 envColor = texture(skybox, reflDir);
-        vec3 lit = lighting * mat.diffuse.rgb;
-        baseColor = vec4(mix(lit, envColor.rgb, 0.5), 1.0); // 50% reflection
-        alpha = 1.0;
+        // --- Glass + env-mapped reflection ---
+        vec3 n = normalize(DataIn.normal);          // view-space normal
+        vec3 e = normalize(DataIn.eye);             // view-space vector from surface -> eye
+        vec3 I = normalize(-e);                     // incident vector (from eye -> surface)
+        vec3 R = reflect(I, n);                     // reflection dir in view space
+
+        // Sample the environment
+        vec3 env = texture(skybox, R).rgb;
+
+        // Optional: sample your glass texture as a tint/pattern (windows etc.)
+        // If your glass buildings use texmap7, keep this; otherwise remove.
+        vec4 glassTex = texture(texmap7, DataIn.tex_coord);
+        vec3 tint = glassTex.rgb * mat.diffuse.rgb;
+
+        // Schlick Fresnel: F0 ~ 0.02–0.08 for dielectrics (pick what you like)
+        float F0 = 0.04; // can promote to a uniform if you want artistic control
+        float cosTheta = clamp(dot(n, e), 0.0, 1.0);
+        float Fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+
+        // Amount of reflection (artist control): multiply Fresnel by a scalar
+        float reflectivity = 2.5; // 0..1, tweak to taste
+
+        // Lit base (diffuse/spec/ambient you computed above)
+        vec3 litBase = lighting * tint;
+
+        // Blend env reflection over lit base
+        vec3 rgb = mix(litBase, env, reflectivity * Fresnel);
+
+        // Alpha: keep your glass translucency; if glassTex has alpha, use it too
+        float a = mat.diffuse.a * (glassTex.a > 0.0 ? glassTex.a : 1.0);
+
+        baseColor = vec4(rgb, a);
+        alpha = a;
+    }
+    else if (texMode == 13) {
+        // --- Metallic / flying objects: lit base + environment reflection ---
+        vec3 n = normalize(DataIn.normal);
+        vec3 e = normalize(DataIn.eye);
+        vec3 I = normalize(-e);
+        vec3 R = reflect(I, n);
+
+        // Sample environment
+        vec3 env = texture(skybox, R).rgb;
+
+        // Base lighting (same as texMode 0)
+        vec3 litBase = lighting * mat.diffuse.rgb;
+
+        // Fresnel (stronger for metals)
+        float F0 = 0.12;                       // more reflective base value
+        float cosTheta = clamp(dot(n, e), 0.0, 1.0);
+        float Fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+
+        // Reflection mix
+        float reflectivity = 1.2;              // adjust intensity to taste
+        vec3 rgb = mix(litBase, env, reflectivity * Fresnel);
+
+        // Metallic objects are opaque
+        float a = mat.diffuse.a;
+        baseColor = vec4(rgb, a);
+        alpha = a;
     }
 
     else { 

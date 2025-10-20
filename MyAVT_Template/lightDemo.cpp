@@ -311,7 +311,7 @@ struct FlyingObject {
 
 std::vector<FlyingObject> flyingObjects;
 
-const int   NUM_FLYING_OBJECTS = 1;
+const int   NUM_FLYING_OBJECTS = 8;
 const float SPAWN_RADIUS = 45.0f;  // birth ring radius (XZ)
 const float KILL_RADIUS = 65.0f;  // die when too far from center
 const float MIN_Y = 0.0f;
@@ -1472,21 +1472,20 @@ void renderSmokeParticles(const Camera& cam) {
 
 static void drawSkybox(const Camera& cam)
 {
-	if (skyboxCubeMeshID < 0) return;      // must have a cube mesh
+	if (skyboxCubeMeshID < 0) return;
 	renderer.activateRenderMeshesShaderProg();
 
-	// depth: draw behind everything, don’t write depth
 	GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
-	if (cullWasOn) glCullFace(GL_FRONT);   // draw inside of cube (or disable cull)
+	if (cullWasOn) glCullFace(GL_FRONT);
+
+	// DO NOT disable depth test here.
+	// We only disable depth WRITES so skybox doesn’t affect depth.
 	glDepthMask(GL_FALSE);
 
-	// model at camera position so view*model cancels translation (only rotation remains)
 	mu.pushMatrix(gmu::MODEL);
 	mu.loadIdentity(gmu::MODEL);
 	mu.translate(gmu::MODEL, cam.pos[0], cam.pos[1], cam.pos[2]);
-	
 
-	// big cube — just needs to surround the scene
 	const float SKYBOX_SIZE = 500.0f;
 	mu.scale(gmu::MODEL, SKYBOX_SIZE, SKYBOX_SIZE, SKYBOX_SIZE);
 	mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f);
@@ -1496,7 +1495,7 @@ static void drawSkybox(const Camera& cam)
 
 	dataMesh d{};
 	d.meshID = skyboxCubeMeshID;
-	d.texMode = 10;               // fragment shader should sample the cubemap for this mode
+	d.texMode = 10;
 	d.vm = mu.get(gmu::VIEW_MODEL);
 	d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 	d.normal = mu.getNormalMatrix();
@@ -1545,8 +1544,6 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		cam.target[0], cam.target[1], cam.target[2],
 		0, 1, 0);
 
-	//drawSkybox(cam);
-
 	// =====================================================================
 	//                            REFLECTION PASS
 	// =====================================================================
@@ -1570,7 +1567,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	// --- 2) Draw mirrored scene where stencil==1
 	glStencilMask(0x00);                 // don't modify stencil while drawing
 	glStencilFunc(GL_EQUAL, 1, 0xFF);    // only inside the floor silhouette
-
+	
 	GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
 	if (cullWasOn) glDisable(GL_CULL_FACE);   // negative scale flips winding
 
@@ -1652,7 +1649,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 				mu.computeNormalMatrix3x3();
 
 				data.meshID = mID;
-				data.texMode = city[i][j].texMode;
+				data.texMode = 11;
 				data.vm = mu.get(gmu::VIEW_MODEL);
 				data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 				data.normal = mu.getNormalMatrix();
@@ -1661,8 +1658,57 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 				mu.popMatrix(gmu::MODEL);
 			}
 		}
-		glDepthMask(GL_TRUE);
 		glDisable(GL_BLEND);
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+		glDepthMask(GL_TRUE);
+		glDepthFunc(GL_LESS); // normal
+
+		for (int i = 0; i < GRID_SIZE; ++i) {
+			for (int j = 0; j < GRID_SIZE; ++j) {
+				int mID = city[i][j].meshID;
+				if (mID != glassCubeMeshID && mID != glassCylMeshID) continue;
+
+				// *** use the exact same transforms as the blended pass ***
+				mu.pushMatrix(gmu::MODEL);
+				// (same translate/scale/rotate as above)
+				const float spacing = 7.2f;
+				const float floorSize = 65.0f;
+				const float xOffset = -floorSize / 2.0f + spacing / 2.0f;
+				const float zOffset = -floorSize / 2.0f + spacing / 2.0f;
+
+				mu.translate(gmu::MODEL,
+					xOffset + (float)i * spacing + buildingOffset[i][j][0],
+					0.0f + buildingOffset[i][j][1],
+					zOffset + (float)j * spacing + buildingOffset[i][j][2]);
+
+				float height = city[i][j].height;
+				if (mID == glassCylMeshID) {
+					mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
+					mu.translate(gmu::MODEL, 0.0f, 0.75f, 0.0f);
+				}
+				else {
+					mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
+				}
+
+				mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+				mu.computeNormalMatrix3x3();
+
+				dataMesh depthOnly{};
+				depthOnly.meshID = mID;
+				depthOnly.texMode = 11; // same is fine; color is masked off
+				depthOnly.vm = mu.get(gmu::VIEW_MODEL);
+				depthOnly.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+				depthOnly.normal = mu.getNormalMatrix();
+				renderer.renderMesh(depthOnly);
+
+				mu.popMatrix(gmu::MODEL);
+			}
+		}
+
+		// restore normal writes
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+
 
 		// PACKAGE
 		if (package.active && packageMeshID >= 0) {
@@ -1741,7 +1787,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			mu.scale(gmu::MODEL, o.size, o.size, o.size);
 			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 			mu.computeNormalMatrix3x3();
-			data.meshID = o.meshID; data.texMode = 0;
+			data.meshID = o.meshID; data.texMode = 13;
 			data.vm = mu.get(gmu::VIEW_MODEL);
 			data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 			data.normal = mu.getNormalMatrix();
@@ -1991,7 +2037,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 				mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 				mu.computeNormalMatrix3x3();
 				data.meshID = mID;
-				data.texMode = city[i][j].texMode;
+				data.texMode = 11;
 				data.vm = mu.get(gmu::VIEW_MODEL);
 				data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 				data.normal = mu.getNormalMatrix();
@@ -2000,8 +2046,55 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 				mu.popMatrix(gmu::MODEL);
 			}
 		}
-		glDepthMask(GL_TRUE);
 		glDisable(GL_BLEND);
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+		glDepthMask(GL_TRUE);
+		glDepthFunc(GL_LESS); // normal
+
+		for (int i = 0; i < GRID_SIZE; ++i) {
+			for (int j = 0; j < GRID_SIZE; ++j) {
+				int mID = city[i][j].meshID;
+				if (mID != glassCubeMeshID && mID != glassCylMeshID) continue;
+
+				// *** use the exact same transforms as the blended pass ***
+				mu.pushMatrix(gmu::MODEL);
+				// (same translate/scale/rotate as above)
+				const float spacing = 7.2f;
+				const float floorSize = 65.0f;
+				const float xOffset = -floorSize / 2.0f + spacing / 2.0f;
+				const float zOffset = -floorSize / 2.0f + spacing / 2.0f;
+
+				mu.translate(gmu::MODEL,
+					xOffset + (float)i * spacing + buildingOffset[i][j][0],
+					0.0f + buildingOffset[i][j][1],
+					zOffset + (float)j * spacing + buildingOffset[i][j][2]);
+
+				float height = city[i][j].height;
+				if (mID == glassCylMeshID) {
+					mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
+					mu.translate(gmu::MODEL, 0.0f, 0.75f, 0.0f);
+				}
+				else {
+					mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
+				}
+
+				mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+				mu.computeNormalMatrix3x3();
+
+				dataMesh depthOnly{};
+				depthOnly.meshID = mID;
+				depthOnly.texMode = 11; // same is fine; color is masked off
+				depthOnly.vm = mu.get(gmu::VIEW_MODEL);
+				depthOnly.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+				depthOnly.normal = mu.getNormalMatrix();
+				renderer.renderMesh(depthOnly);
+
+				mu.popMatrix(gmu::MODEL);
+			}
+		}
+
+		// restore normal writes
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
 		// PACKAGE
 		if (package.active && packageMeshID >= 0) {
@@ -2079,7 +2172,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			mu.scale(gmu::MODEL, o.size, o.size, o.size);
 			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 			mu.computeNormalMatrix3x3();
-			data.meshID = o.meshID; data.texMode = 0;
+			data.meshID = o.meshID; data.texMode = 13;
 			data.vm = mu.get(gmu::VIEW_MODEL);
 			data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 			data.normal = mu.getNormalMatrix();
@@ -2125,9 +2218,15 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	// SMOKE (normal pass only)
 	renderSmokeParticles(cams[activeCam]);
 
-	glDepthFunc(GL_LEQUAL); // allow skybox behind everything
+	glDepthFunc(GL_LEQUAL);
+	glDepthMask(GL_FALSE);
 	drawSkybox(cam);
+	glDepthMask(GL_TRUE);
 	glDepthFunc(GL_LESS);
+
+	//glDepthFunc(GL_LEQUAL); // allow skybox behind everything
+	//drawSkybox(cam);
+	//glDepthFunc(GL_LESS);
 }
 
 static void drawHudMaskBorderCore(float cx, float cy, float sizePx) {
@@ -2769,12 +2868,12 @@ void buildScene()
 	renderer.TexObjArray.texture2D_Loader("assets/smoke_particle.png");
 
 	const char* skyFaces[6] = {
-	"assets/stormydays_rt.tga", // +X (right)
-	"assets/stormydays_lf.tga", // -X (left)
-	"assets/stormydays_up.tga", // +Y (top)
-	"assets/stormydays_dn.tga", // -Y (bottom)
-	"assets/stormydays_ft.tga", // +Z (front)
-	"assets/stormydays_bk.tga"  // -Z (back)
+	"assets/graycloud_rt.jpg", // +X (right)
+	"assets/graycloud_lf.jpg", // -X (left)
+	"assets/graycloud_up.jpg", // +Y (top)
+	"assets/graycloud_dn.jpg", // -Y (bottom)
+	"assets/graycloud_ft.jpg", // +Z (front)
+	"assets/graycloud_bk.jpg"  // -Z (back)
 	};
 	renderer.TexObjArray.textureCubeMap_Loader(skyFaces);
 	GLuint cubeIndex = renderer.TexObjArray.getNumTextureObjects() - 1;
@@ -2842,10 +2941,10 @@ void buildScene()
 	{
 		// Glassy cube
 		MyMesh glass = createCube();
-		float amb[] = { 0.05f, 0.08f, 0.10f, 0.6f };   // a ~ 0.55
-		float diff[] = { 0.20f, 0.45f, 0.65f, 0.6f };
-		float spec[] = { 0.80f, 0.90f, 1.00f, 0.6f };
-		float emis[] = { 0.00f, 0.00f, 0.00f, 0.6f };
+		float amb[] = { 0.05f, 0.08f, 0.10f, 0.7f };   // a ~ 0.55
+		float diff[] = { 0.20f, 0.45f, 0.65f, 0.7f };
+		float spec[] = { 0.80f, 0.90f, 1.00f, 0.7f };
+		float emis[] = { 0.00f, 0.00f, 0.00f, 0.7f };
 		glass.mat.shininess = 120.0f; glass.mat.texCount = 0;
 		memcpy(glass.mat.ambient, amb, 4 * sizeof(float));
 		memcpy(glass.mat.diffuse, diff, 4 * sizeof(float));
@@ -2859,10 +2958,10 @@ void buildScene()
 
 		// Glassy cylinder
 		MyMesh glass = createCylinder(1.5f, 0.5f, 20);
-		float amb[] = { 0.05f, 0.08f, 0.10f, 0.6f };
-		float diff[] = { 0.20f, 0.45f, 0.65f, 0.6f };
-		float spec[] = { 0.80f, 0.90f, 1.00f, 0.6f };
-		float emis[] = { 0.00f, 0.00f, 0.00f, 0.6f };
+		float amb[] = { 0.05f, 0.08f, 0.10f, 0.7f };
+		float diff[] = { 0.20f, 0.45f, 0.65f, 0.7f };
+		float spec[] = { 0.80f, 0.90f, 1.00f, 0.7f };
+		float emis[] = { 0.00f, 0.00f, 0.00f, 0.7f };
 		glass.mat.shininess = 120.0f; glass.mat.texCount = 0;
 		memcpy(glass.mat.ambient, amb, 4 * sizeof(float));
 		memcpy(glass.mat.diffuse, diff, 4 * sizeof(float));
@@ -3003,14 +3102,14 @@ void buildScene()
 
 	srand((unsigned)time(NULL));
 
-	// Dedicated small sphere for flying objects (bright so it’s visible)
+	// Dedicated small cube for flying objects (bright so it’s visible)
 	{
 		MyMesh mob = createCube();
-		float amb[] = { 0.1f, 0.1f, 0.1f, 1.0f };
-		float diff[] = { 0.8f, 0.8f, 0.2f, 1.0f };
-		float spec[] = { 0.9f, 0.9f, 0.9f, 1.0f };
-		float emis[] = { 0.05f, 0.05f, 0.05f, 1.0f };
-		mob.mat.shininess = 80.0f; mob.mat.texCount = 0;
+		float amb[] = { 0.15f, 0.3f, 0.15f, 1.0f };   // subtle ambient
+		float diff[] = { 0.6f, 0.6f, 0.6f, 1.0f };     // neutral gray base
+		float spec[] = { 1.0f, 1.0f, 1.0f, 1.0f };     // strong white specular
+		float emis[] = { 0.02f, 0.02f, 0.02f, 1.0f };  // faint self-illumination
+		mob.mat.shininess = 300.0f; mob.mat.texCount = 0;
 		memcpy(mob.mat.ambient, amb, 4 * sizeof(float));
 		memcpy(mob.mat.diffuse, diff, 4 * sizeof(float));
 		memcpy(mob.mat.specular, spec, 4 * sizeof(float));
