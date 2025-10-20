@@ -64,6 +64,8 @@ public:
 
   void setTexUnit(int tuId, int texObjId);
 
+  void setSkybox(GLuint cubeTexID, int texUnit);
+
   void setFogParams(int depthFog, const float fogColor[3], float fogDensity);
 
   void setDirectionalLight(float* direction, float r, float g, float b, bool on);
@@ -77,6 +79,7 @@ public:
       const float spotColor[][3],
       bool spotOn,
       float spotCutOff);
+
 
   //Vector with meshes
   std::vector<struct MyMesh> myMeshes;
@@ -104,6 +107,7 @@ private:
 
   GLint pvm_loc, vm_loc, normal_loc, lpos_loc, texMode_loc;
   GLint tex_loc[MAX_TEXTURES];
+  GLint skybox_loc;
 
   //render font GLSL program variable locations and VAO
   GLint fontPvm_loc, textColor_loc;

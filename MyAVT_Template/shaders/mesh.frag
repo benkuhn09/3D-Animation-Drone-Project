@@ -37,6 +37,7 @@ in Data {
     vec3 fragPos;
     vec2 tex_coord;
     vec4 posEye;   // for fog
+    vec3 worldDir; // new
 } DataIn;
 
 uniform Materials mat;
@@ -51,6 +52,7 @@ uniform sampler2D texmap6;
 uniform sampler2D texmap7;
 uniform sampler2D texmap8;
 uniform sampler2D texmap9;
+uniform samplerCube skybox;
 
 uniform int texMode;
 
@@ -197,7 +199,23 @@ void main() {
         baseColor = vec4(0.0, 0.0, 0.0, 1.0);
         alpha = mat.diffuse.a;
     }
-    else {
+    else if (texMode == 10) {
+        // Skybox mode
+        vec3 dir = normalize(DataIn.worldDir);
+        baseColor = texture(skybox, dir);
+        alpha = 1.0;
+    }
+    else if (texMode == 11) {
+        // Environment-mapped reflection
+        vec3 viewDir = normalize(-DataIn.fragPos);
+        vec3 reflDir = reflect(viewDir, normalize(DataIn.normal));
+        vec4 envColor = texture(skybox, reflDir);
+        vec3 lit = lighting * mat.diffuse.rgb;
+        baseColor = vec4(mix(lit, envColor.rgb, 0.5), 1.0); // 50% reflection
+        alpha = 1.0;
+    }
+
+    else { 
         texel = texture(texmap9, DataIn.tex_coord); // smoke particle
         baseColor = vec4(lighting * texel.rgb, 1.0);
         alpha *= texel.a;

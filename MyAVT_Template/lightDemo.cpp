@@ -346,6 +346,8 @@ static inline void normalize3(float v[3]) {
 	if (L > 0.0f) { v[0] /= L; v[1] /= L; v[2] /= L; }
 }
 
+static GLuint gSkyboxTex = 0;         // GL cubemap
+static int    skyboxCubeMeshID = -1;
 
 // ----- Lens flare globals -----
 bool flareEffect = false;      // toggled with 'l' (only when spotlights are OFF)
@@ -1450,7 +1452,7 @@ void renderSmokeParticles(const Camera& cam) {
 
 		dataMesh d{};
 		d.meshID = smokeQuadMeshID;
-		d.texMode = 10;
+		d.texMode = 12;
 		d.vm = mu.get(gmu::VIEW_MODEL);
 		d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 		d.normal = mu.getNormalMatrix();
@@ -1466,6 +1468,45 @@ void renderSmokeParticles(const Camera& cam) {
 
 	
 	if (!depthWasOn) glDisable(GL_DEPTH_TEST);
+}
+
+static void drawSkybox(const Camera& cam)
+{
+	if (skyboxCubeMeshID < 0) return;      // must have a cube mesh
+	renderer.activateRenderMeshesShaderProg();
+
+	// depth: draw behind everything, don’t write depth
+	GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
+	if (cullWasOn) glCullFace(GL_FRONT);   // draw inside of cube (or disable cull)
+	glDepthMask(GL_FALSE);
+
+	// model at camera position so view*model cancels translation (only rotation remains)
+	mu.pushMatrix(gmu::MODEL);
+	mu.loadIdentity(gmu::MODEL);
+	mu.translate(gmu::MODEL, cam.pos[0], cam.pos[1], cam.pos[2]);
+	
+
+	// big cube — just needs to surround the scene
+	const float SKYBOX_SIZE = 500.0f;
+	mu.scale(gmu::MODEL, SKYBOX_SIZE, SKYBOX_SIZE, SKYBOX_SIZE);
+	mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f);
+
+	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+	mu.computeNormalMatrix3x3();
+
+	dataMesh d{};
+	d.meshID = skyboxCubeMeshID;
+	d.texMode = 10;               // fragment shader should sample the cubemap for this mode
+	d.vm = mu.get(gmu::VIEW_MODEL);
+	d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+	d.normal = mu.getNormalMatrix();
+
+	renderer.renderMesh(d);
+
+	mu.popMatrix(gmu::MODEL);
+
+	glDepthMask(GL_TRUE);
+	if (cullWasOn) glCullFace(GL_BACK);
 }
 
 static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
@@ -1486,6 +1527,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	renderer.setTexUnit(0, 0); renderer.setTexUnit(1, 1); renderer.setTexUnit(2, 2);
 	renderer.setTexUnit(3, 3); renderer.setTexUnit(4, 4); renderer.setTexUnit(5, 5);
 	renderer.setTexUnit(6, 6); renderer.setTexUnit(7, 7); renderer.setTexUnit(8, 8); renderer.setTexUnit(9, 9);
+	renderer.setSkybox(gSkyboxTex, 10);
 
 	// ===== Camera setup (unchanged) =====
 	mu.loadIdentity(gmu::VIEW);
@@ -1502,6 +1544,8 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	mu.lookAt(cam.pos[0], cam.pos[1], cam.pos[2],
 		cam.target[0], cam.target[1], cam.target[2],
 		0, 1, 0);
+
+	//drawSkybox(cam);
 
 	// =====================================================================
 	//                            REFLECTION PASS
@@ -1739,15 +1783,30 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 
 	// --- 3) Draw the floor semi-transparent over the reflection
 	{
-		float saved[4]; memcpy(saved, renderer.myMeshes[0].mat.diffuse, sizeof(saved));
-		renderer.myMeshes[0].mat.diffuse[3] = 0.6f; // ~40% see-through
+		{
+			float saved[4]; memcpy(saved, renderer.myMeshes[0].mat.diffuse, sizeof(saved));
+			renderer.myMeshes[0].mat.diffuse[3] = 0.6f; // 40% see-through
 
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		drawFloor(6);   // textured floor
-		glDisable(GL_BLEND);
+			// Enable stencil constraint again — only draw where reflection exists
+			glEnable(GL_STENCIL_TEST);
+			glStencilFunc(GL_EQUAL, 1, 0xFF); // only where reflection was drawn
+			glStencilMask(0x00);              // don’t modify stencil buffer
 
-		memcpy(renderer.myMeshes[0].mat.diffuse, saved, sizeof(saved));
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+			// Disable depth writes so the floor doesn’t occlude other objects later
+			
+
+			glDepthFunc(GL_LEQUAL);
+			drawFloor(6);
+			glDepthFunc(GL_LESS);
+
+			glDisable(GL_BLEND);
+			glDisable(GL_STENCIL_TEST);
+
+			memcpy(renderer.myMeshes[0].mat.diffuse, saved, sizeof(saved));
+		}
 	}
 
 	// We’re done using stencil for reflection
@@ -2065,6 +2124,10 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 
 	// SMOKE (normal pass only)
 	renderSmokeParticles(cams[activeCam]);
+
+	glDepthFunc(GL_LEQUAL); // allow skybox behind everything
+	drawSkybox(cam);
+	glDepthFunc(GL_LESS);
 }
 
 static void drawHudMaskBorderCore(float cx, float cy, float sizePx) {
@@ -2705,6 +2768,18 @@ void buildScene()
 	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_residential.jpg");
 	renderer.TexObjArray.texture2D_Loader("assets/smoke_particle.png");
 
+	const char* skyFaces[6] = {
+	"assets/stormydays_rt.tga", // +X (right)
+	"assets/stormydays_lf.tga", // -X (left)
+	"assets/stormydays_up.tga", // +Y (top)
+	"assets/stormydays_dn.tga", // -Y (bottom)
+	"assets/stormydays_ft.tga", // +Z (front)
+	"assets/stormydays_bk.tga"  // -Z (back)
+	};
+	renderer.TexObjArray.textureCubeMap_Loader(skyFaces);
+	GLuint cubeIndex = renderer.TexObjArray.getNumTextureObjects() - 1;
+	gSkyboxTex = renderer.TexObjArray.getTextureId(cubeIndex);
+
 	setSunFromAngles(sunAzimuthDeg, sunElevationDeg);
 	//Scene geometry with triangle meshes
 
@@ -2856,6 +2931,18 @@ void buildScene()
 
 		renderer.myMeshes.push_back(wire);
 		wireCubeMeshID = (int)renderer.myMeshes.size() - 1;
+	}
+
+	{
+		MyMesh sky = createCube();
+		float amb[] = { 0,0,0,1 }, diff[] = { 1,1,1,1 }, spec[] = { 0,0,0,1 }, emis[] = { 0,0,0,1 };
+		sky.mat.shininess = 0.0f; sky.mat.texCount = 0; // material irrelevant for cubemap
+		memcpy(sky.mat.ambient, amb, 4 * sizeof(float));
+		memcpy(sky.mat.diffuse, diff, 4 * sizeof(float));
+		memcpy(sky.mat.specular, spec, 4 * sizeof(float));
+		memcpy(sky.mat.emissive, emis, 4 * sizeof(float));
+		renderer.myMeshes.push_back(sky);
+		skyboxCubeMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
 	// create geometry and VAO of the torus
@@ -3038,6 +3125,7 @@ int main(int argc, char** argv) {
 	glewInit();
 
 	// some GL settings
+	glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_CULL_FACE);
 	glEnable(GL_MULTISAMPLE);

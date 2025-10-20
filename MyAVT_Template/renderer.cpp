@@ -141,14 +141,14 @@ bool Renderer::setRenderMeshesShaderProg(const std::string& vertShaderPath, cons
     glLinkProgram(program);
 
     printf("InfoLog for Model Shaders and Program\n%s\n\n", shader.getAllInfoLogs().c_str());
-    if (!shader.isProgramValid())
-        printf("GLSL Model Program Not Valid!\n");
 
+    // 1?? Get all uniform locations *after linking*
     pvm_loc = glGetUniformLocation(program, "m_pvm");
     vm_loc = glGetUniformLocation(program, "m_viewModel");
     normal_loc = glGetUniformLocation(program, "m_normal");
-    texMode_loc = glGetUniformLocation(program, "texMode"); // different modes of texturing
+    texMode_loc = glGetUniformLocation(program, "texMode");
     lpos_loc = glGetUniformLocation(program, "l_pos");
+
     tex_loc[0] = glGetUniformLocation(program, "texmap");
     tex_loc[1] = glGetUniformLocation(program, "texmap1");
     tex_loc[2] = glGetUniformLocation(program, "texmap2");
@@ -159,9 +159,37 @@ bool Renderer::setRenderMeshesShaderProg(const std::string& vertShaderPath, cons
     tex_loc[7] = glGetUniformLocation(program, "texmap7");
     tex_loc[8] = glGetUniformLocation(program, "texmap8");
     tex_loc[9] = glGetUniformLocation(program, "texmap9");
+    skybox_loc = glGetUniformLocation(program, "skybox"); // NEW
+
+    // 2?? Assign each sampler to a unique texture unit
+    glUseProgram(program);
+
+    for (int i = 0; i < 10; ++i) {
+        if (tex_loc[i] != -1)
+            glUniform1i(tex_loc[i], i);
+    }
+
+    if (skybox_loc != -1)
+        glUniform1i(skybox_loc, 10);  // skybox ? texture unit 10
+
+    // 3?? Validate *after* all uniforms are assigned
+    if (!shader.isProgramValid()) {
+        GLint status = 0;
+        glGetProgramiv(program, GL_VALIDATE_STATUS, &status);
+        GLint logLen = 0;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLen);
+        if (logLen > 1) {
+            std::vector<char> log(logLen);
+            glGetProgramInfoLog(program, logLen, nullptr, log.data());
+            fprintf(stderr, "Program validation log:\n%s\n", log.data());
+        }
+        printf("GLSL Model Program Not Valid!\n");
+    }
 
     return(shader.isProgramLinked() && shader.isProgramValid());
 }
+
+
 Renderer::~Renderer() {
     glDeleteProgram(program);
     glDeleteProgram(textProgram);
@@ -229,6 +257,20 @@ void Renderer::setTexUnit(int tuId, int texObjId) {
     glActiveTexture(GL_TEXTURE0 + tuId);
     glBindTexture(GL_TEXTURE_2D, TexObjArray.getTextureId(texObjId));
     glUniform1i(tex_loc[tuId], tuId);
+}
+
+void Renderer::setSkybox(GLuint cubeTexID, int texUnit) {
+    glUseProgram(program); // ensure the mesh shader is active
+    glActiveTexture(GL_TEXTURE0 + texUnit);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubeTexID);
+
+    GLint loc = glGetUniformLocation(program, "skybox");
+    if (loc != -1) {
+        glUniform1i(loc, texUnit);
+    }
+    else {
+        printf("Warning: uniform 'skybox' not found in shader!\n");
+    }
 }
 
 void Renderer::setFogParams(int depthFog, const float fogColor[3], float fogDensity) {
