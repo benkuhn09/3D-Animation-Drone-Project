@@ -137,6 +137,7 @@ bool Renderer::setRenderMeshesShaderProg(const std::string& vertShaderPath, cons
     glBindAttribLocation(program, Shader::VERTEX_COORD_ATTRIB, "position");
     glBindAttribLocation(program, Shader::NORMAL_ATTRIB, "normal");
     glBindAttribLocation(program, Shader::TEXTURE_COORD_ATTRIB, "texCoord");
+    glBindAttribLocation(program, Shader::TANGENT_ATTRIB, "tangent");
 
     glLinkProgram(program);
 
@@ -159,18 +160,19 @@ bool Renderer::setRenderMeshesShaderProg(const std::string& vertShaderPath, cons
     tex_loc[7] = glGetUniformLocation(program, "texmap7");
     tex_loc[8] = glGetUniformLocation(program, "texmap8");
     tex_loc[9] = glGetUniformLocation(program, "texmap9");
+    tex_loc[10] = glGetUniformLocation(program, "texmap10");
     skybox_loc = glGetUniformLocation(program, "skybox"); // NEW
 
     // 2?? Assign each sampler to a unique texture unit
     glUseProgram(program);
 
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 11; ++i) {
         if (tex_loc[i] != -1)
             glUniform1i(tex_loc[i], i);
     }
 
     if (skybox_loc != -1)
-        glUniform1i(skybox_loc, 10);  // skybox ? texture unit 10
+        glUniform1i(skybox_loc, 11);  // skybox ? texture unit 10
 
     // 3?? Validate *after* all uniforms are assigned
     if (!shader.isProgramValid()) {

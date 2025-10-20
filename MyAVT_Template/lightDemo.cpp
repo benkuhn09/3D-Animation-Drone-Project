@@ -349,6 +349,8 @@ static inline void normalize3(float v[3]) {
 static GLuint gSkyboxTex = 0;         // GL cubemap
 static int    skyboxCubeMeshID = -1;
 
+static int gNormalMapTexIndex = -1;
+
 // ----- Lens flare globals -----
 bool flareEffect = false;      // toggled with 'l' (only when spotlights are OFF)
 FLARE_DEF gFlare;              // parsed from flare.txt
@@ -610,7 +612,7 @@ static void setLightsForPass(bool reflected) {
 	renderer.setSpotLights(spotEyePos, spotEyeDir, spotColor, spotLightsOn, spotCutOff);
 }
 
-static void drawFloor(int texMode = 6) {
+static void drawFloor(int texMode = 14) {
 	dataMesh data{};
 	mu.pushMatrix(gmu::MODEL);
 	mu.translate(gmu::MODEL, 0.0f, 0.0f, 0.0f);
@@ -1275,6 +1277,71 @@ static void estimateTextSize(const std::string& s, float size, float& outW, floa
 	outH = 0.40f * size;
 }
 
+static void drawRectBorderPx(int x, int y, int w, int h, int thicknessPx,
+	float r, float g, float b, float a)
+{
+	// Save state
+	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
+	GLboolean stencilWasOn = glIsEnabled(GL_STENCIL_TEST);
+	GLboolean blendWasOn = glIsEnabled(GL_BLEND);
+	if (depthWasOn)   glDisable(GL_DEPTH_TEST);
+	if (stencilWasOn) glDisable(GL_STENCIL_TEST);
+	if (!blendWasOn)  glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDepthMask(GL_FALSE);
+
+	renderer.activateRenderMeshesShaderProg();
+
+	int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+	mu.pushMatrix(gmu::PROJECTION);
+	mu.loadIdentity(gmu::PROJECTION);
+	// pixel-accurate ortho so edges stay crisp
+	mu.ortho(0.0f, (float)vp[2] - 1.0f, 0.0f, (float)vp[3] - 1.0f, -1.0f, 1.0f);
+	mu.loadIdentity(gmu::VIEW);
+
+	auto drawBar = [&](float cx, float cy, float bw, float bh)
+		{
+			mu.pushMatrix(gmu::MODEL);
+			mu.loadIdentity(gmu::MODEL);
+			// snap to pixel centers to avoid half-pixel blur
+			mu.translate(gmu::MODEL, floorf(cx) + 0.5f, floorf(cy) + 0.5f, 0.0f);
+			mu.scale(gmu::MODEL, bw, bh, 1.0f);
+			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+			mu.computeNormalMatrix3x3();
+
+			dataMesh d{};
+			d.meshID = (smokeQuadMeshID >= 0) ? smokeQuadMeshID : stencilMaskMeshID; // any unit quad
+			d.texMode = 0;
+			d.vm = mu.get(gmu::VIEW_MODEL);
+			d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+			d.normal = mu.getNormalMatrix();
+
+			float saved[4]; memcpy(saved, renderer.myMeshes[d.meshID].mat.diffuse, sizeof(saved));
+			float col[4] = { r, g, b, a };
+			memcpy(renderer.myMeshes[d.meshID].mat.diffuse, col, sizeof(col));
+			renderer.renderMesh(d);
+			memcpy(renderer.myMeshes[d.meshID].mat.diffuse, saved, sizeof(saved));
+
+			mu.popMatrix(gmu::MODEL);
+		};
+
+	// Four bars (left, right, bottom, top)
+	const float t = (float)thicknessPx;
+	// centers + sizes in pixels
+	drawBar(x + t * 0.5f, y + h * 0.5f, t, (float)h);      // left
+	drawBar(x + w - t * 0.5f, y + h * 0.5f, t, (float)h);      // right
+	drawBar(x + w * 0.5f, y + t * 0.5f, (float)w, t);      // bottom
+	drawBar(x + w * 0.5f, y + h - t * 0.5f, (float)w, t);  // top
+
+	mu.popMatrix(gmu::PROJECTION);
+
+	// Restore state
+	glDepthMask(GL_TRUE);
+	if (!blendWasOn)  glDisable(GL_BLEND);
+	if (stencilWasOn) glEnable(GL_STENCIL_TEST);
+	if (depthWasOn)   glEnable(GL_DEPTH_TEST);
+}
+
 static inline void computeShadowMatrixOnFloor(float S[16]) {
 	float plane[4] = { 0.0f, 1.0f, 0.0f, 0.0f };          // y = 0
 	float light[4];
@@ -1526,7 +1593,8 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	renderer.setTexUnit(0, 0); renderer.setTexUnit(1, 1); renderer.setTexUnit(2, 2);
 	renderer.setTexUnit(3, 3); renderer.setTexUnit(4, 4); renderer.setTexUnit(5, 5);
 	renderer.setTexUnit(6, 6); renderer.setTexUnit(7, 7); renderer.setTexUnit(8, 8); renderer.setTexUnit(9, 9);
-	renderer.setSkybox(gSkyboxTex, 10);
+	renderer.setSkybox(gSkyboxTex, 11);
+	renderer.setTexUnit(10, gNormalMapTexIndex);
 
 	// ===== Camera setup (unchanged) =====
 	mu.loadIdentity(gmu::VIEW);
@@ -1558,7 +1626,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	glDisable(GL_DEPTH_TEST);
 	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
-	drawFloor(); // Just writes into stencil now
+	drawFloor(14); // Just writes into stencil now
 
 	// restore color/depth writes
 	if (depthWasOn) glEnable(GL_DEPTH_TEST);
@@ -1845,7 +1913,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			
 
 			glDepthFunc(GL_LEQUAL);
-			drawFloor(6);
+			drawFloor(14);
 			glDepthFunc(GL_LESS);
 
 			glDisable(GL_BLEND);
@@ -2459,38 +2527,43 @@ void renderSim(void) {
 		glStencilFunc(GL_ALWAYS, 1, 0xFF);
 		glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
 
+		// make sure BOTH triangles of the quad write into stencil
+		GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
+		if (cullWasOn) glDisable(GL_CULL_FACE);
+
 		// compute inset rect (in pixels)
-		int vp[4];
-		glGetIntegerv(GL_VIEWPORT, vp);
+		int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
 		float W = float(vp[2]), H = float(vp[3]);
-		float size = rearMaskSizePx, margin = rearMaskMarginPx;
+		float size = rearMaskSizePx + 1.0f;         // +1px to kill the thin border
+		float margin = rearMaskMarginPx;
 
 		// center coordinates of inset mask
 		float cx = W - margin - size * 0.5f;
 		float cy = margin + size * 0.5f;
 
-		// --- define inset viewport region (square) ---
-		int insetW = (int)size;
-		int insetH = (int)size;
-		int insetX = (int)(W - margin - size);
+		// define inset viewport (still uses the original size WITHOUT the +1)
+		int insetW = (int)rearMaskSizePx;
+		int insetH = (int)rearMaskSizePx;
+		int insetX = (int)(W - margin - rearMaskSizePx);
 		int insetY = (int)margin;
 
 		// render the mask quad in HUD-ortho via your renderer
 		renderer.activateRenderMeshesShaderProg();
 		mu.pushMatrix(gmu::PROJECTION);
 		mu.loadIdentity(gmu::PROJECTION);
-		mu.ortho(0.0f, W, 0.0f, H, -1.0f, 1.0f);
+		// match your other pixel-accurate HUD paths to avoid half-pixel gaps
+		mu.ortho(0.0f, W - 1.0f, 0.0f, H - 1.0f, -1.0f, 1.0f);
 
 		mu.loadIdentity(gmu::VIEW);
 		mu.loadIdentity(gmu::MODEL);
-		mu.translate(gmu::MODEL, cx, cy, 0.0f);
+		mu.translate(gmu::MODEL, floorf(cx) + 0.5f, floorf(cy) + 0.5f, 0.0f); // snap to pixel centers
 		mu.scale(gmu::MODEL, size, size, 1.0f);
 
 		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 		mu.computeNormalMatrix3x3();
 
 		dataMesh d{};
-		d.meshID = stencilMaskMeshID; // your 1x1 quad
+		d.meshID = stencilMaskMeshID;
 		d.texMode = 0;
 		d.vm = mu.get(gmu::VIEW_MODEL);
 		d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
@@ -2498,6 +2571,9 @@ void renderSim(void) {
 		renderer.renderMesh(d);
 
 		mu.popMatrix(gmu::PROJECTION);
+
+		// restore cull state
+		if (cullWasOn) glEnable(GL_CULL_FACE);
 
 		// restore write masks (keep stencil test enabled for next passes)
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -2548,6 +2624,10 @@ void renderSim(void) {
 		glViewport(vpFull[0], vpFull[1], vpFull[2], vpFull[3]);
 		glDisable(GL_STENCIL_TEST);
 		glStencilMask(0xFF);
+
+		drawRectBorderPx(insetX, insetY, insetW, insetH,
+			3,         // thickness in pixels (try 1–3)
+			1.0f, 1.0f, 1.0f, 1.0f);
 	}
 
 	if (flareEffect && pointLightsOn && !spotLightsOn) {
@@ -2585,7 +2665,7 @@ void renderSim(void) {
 		float size = rearMaskSizePx, margin = rearMaskMarginPx;
 		float cx = W - margin - size * 0.5f;
 		float cy = margin + size * 0.5f;
-		drawHudMaskBorderCore(cx, cy, size);
+		//drawHudMaskBorderCore(cx, cy, size);
 	}
 
 	if (paused) {
@@ -2866,6 +2946,9 @@ void buildScene()
 	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_glass.jpg");
 	renderer.TexObjArray.texture2D_Loader("assets/skyscraper_residential.jpg");
 	renderer.TexObjArray.texture2D_Loader("assets/smoke_particle.png");
+	
+	renderer.TexObjArray.texture2D_Loader("assets/test_normal.jpg");
+	gNormalMapTexIndex = renderer.TexObjArray.getNumTextureObjects() - 1;
 
 	const char* skyFaces[6] = {
 	"assets/graycloud_rt.jpg", // +X (right)
@@ -2888,7 +2971,7 @@ void buildScene()
 	float diff[] = { 0.8f, 0.6f, 0.4f, 1.0f };
 	float spec[] = { 0.8f, 0.8f, 0.8f, 1.0f };
 
-	float amb1[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+	float amb1[] = { 0.4f, 0.4, 0.4f, 1.0f };
 	float diff1[] = { 0.8f, 0.8f, 0.8f, 1.0f };
 	float spec1[] = { 0.3f, 0.3f, 0.3f, 1.0f };
 

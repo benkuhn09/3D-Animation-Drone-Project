@@ -23,47 +23,77 @@
 GLuint VboId[2];
 
 MyMesh createQuad(float size_x, float size_y) {
-	
 	int i;
 	float vert[16];
 	MyMesh amesh;
-	amesh.numIndexes = 2*3;
+	amesh.numIndexes = 2 * 3;
 
 	memcpy(vert, quad_vertices, sizeof(float) * 16);
 
-	for(i=0; i< 4; i++) {
-		vert[i*4] *= size_x;
-		vert[i*4+1] *= size_y;
+	for (i = 0; i < 4; i++) {
+		vert[i * 4] *= size_x;
+		vert[i * 4 + 1] *= size_y;
 	}
 
+	// --- NEW: compute tangents ---
+	float tangent[16];  // 4 vertices × 4 floats
+	ComputeTangentArray(
+		4,                   // vertex count
+		vert,                // vertex positions
+		quad_normals,        // normals
+		quad_texCoords,      // texcoords
+		amesh.numIndexes,    // index count
+		quad_faceIndex,      // indices
+		tangent              // output tangent array
+	);
+
+	// --- Now upload all 4 arrays (pos, norm, uv, tangent) ---
 	glGenVertexArrays(1, &(amesh.vao));
 	glBindVertexArray(amesh.vao);
 
 	glGenBuffers(2, VboId);
 	glBindBuffer(GL_ARRAY_BUFFER, VboId[0]);
 
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quad_vertices)+sizeof(quad_normals)+sizeof(quad_texCoords),NULL,GL_STATIC_DRAW);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad_vertices), vert);
-    glBufferSubData(GL_ARRAY_BUFFER, sizeof(quad_vertices), sizeof(quad_normals), quad_normals);
-    glBufferSubData(GL_ARRAY_BUFFER, sizeof(quad_vertices)+ sizeof(quad_normals), sizeof(quad_texCoords), quad_texCoords);
-    
-    glEnableVertexAttribArray(Shader::VERTEX_COORD_ATTRIB);
-    glVertexAttribPointer(Shader::VERTEX_COORD_ATTRIB, 4, GL_FLOAT, 0, 0, 0);
-    glEnableVertexAttribArray(Shader::NORMAL_ATTRIB);
-    glVertexAttribPointer(Shader::NORMAL_ATTRIB, 4, GL_FLOAT, 0, 0, (void *)sizeof(quad_vertices));
-    glEnableVertexAttribArray(Shader::TEXTURE_COORD_ATTRIB);
-    glVertexAttribPointer(Shader::TEXTURE_COORD_ATTRIB, 4, GL_FLOAT, 0, 0, (void *)(sizeof(quad_vertices)+ sizeof(quad_normals)));
-    
-    //index buffer
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VboId[1]);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * amesh.numIndexes, quad_faceIndex , GL_STATIC_DRAW);
-    
-    // unbind the VAO
-    glBindVertexArray(0);
-  
+	glBufferData(GL_ARRAY_BUFFER,
+		sizeof(quad_vertices) + sizeof(quad_normals) +
+		sizeof(quad_texCoords) + sizeof(tangent),
+		NULL,
+		GL_STATIC_DRAW
+	);
+
+	GLintptr offset = 0;
+	glBufferSubData(GL_ARRAY_BUFFER, offset, sizeof(quad_vertices), vert);
+	offset += sizeof(quad_vertices);
+	glBufferSubData(GL_ARRAY_BUFFER, offset, sizeof(quad_normals), quad_normals);
+	offset += sizeof(quad_normals);
+	glBufferSubData(GL_ARRAY_BUFFER, offset, sizeof(quad_texCoords), quad_texCoords);
+	offset += sizeof(quad_texCoords);
+	glBufferSubData(GL_ARRAY_BUFFER, offset, sizeof(tangent), tangent);
+
+	// vertex attribs
+	offset = 0;
+	glEnableVertexAttribArray(Shader::VERTEX_COORD_ATTRIB);
+	glVertexAttribPointer(Shader::VERTEX_COORD_ATTRIB, 4, GL_FLOAT, GL_FALSE, 0, (void*)offset);
+	offset += sizeof(quad_vertices);
+	glEnableVertexAttribArray(Shader::NORMAL_ATTRIB);
+	glVertexAttribPointer(Shader::NORMAL_ATTRIB, 4, GL_FLOAT, GL_FALSE, 0, (void*)offset);
+	offset += sizeof(quad_normals);
+	glEnableVertexAttribArray(Shader::TEXTURE_COORD_ATTRIB);
+	glVertexAttribPointer(Shader::TEXTURE_COORD_ATTRIB, 4, GL_FLOAT, GL_FALSE, 0, (void*)offset);
+	offset += sizeof(quad_texCoords);
+	glEnableVertexAttribArray(Shader::TANGENT_ATTRIB);
+	glVertexAttribPointer(Shader::TANGENT_ATTRIB, 4, GL_FLOAT, GL_FALSE, 0, (void*)offset);
+
+	// indices
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, VboId[1]);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(unsigned int) * amesh.numIndexes, quad_faceIndex, GL_STATIC_DRAW);
+
+	glBindVertexArray(0);
+
 	amesh.type = GL_TRIANGLES;
-	return(amesh);
+	return amesh;
 }
+
 
 MyMesh createCube() {
 
