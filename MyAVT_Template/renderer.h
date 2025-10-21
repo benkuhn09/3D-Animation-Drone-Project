@@ -88,8 +88,7 @@ public:
   Texture TexObjArray;
 
   // HUD battery bar
-  void initBatteryHUD();
-  void drawBatteryHUD(float batteryLevel, int x, int y, int width, int height);
+  void renderHUD(float batteryLevel, int score, int windowWidth, int windowHeight);
 
   // GL resources pour HUD (membres publics pour simplicité)
   GLuint hudVAO = 0;

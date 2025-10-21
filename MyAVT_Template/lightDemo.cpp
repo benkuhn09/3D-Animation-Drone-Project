@@ -529,6 +529,7 @@ void refresh(int value)
 	glutTimerFunc(16, refresh, 0);
 }
 
+
 // Reshape Callback Function
 void changeSize(int w, int h) {
 	if (h == 0) h = 1;  // prevent divide by zero
@@ -2675,19 +2676,8 @@ void renderSim(void) {
 	}
 
 	//  HUD (Battery + Score)
-	int viewport[4];
-	glGetIntegerv(GL_VIEWPORT, viewport);
-
-	// marge depuis le haut de la fenêtre
-	int marginTop = 20;
-	int hudHeight = 18;
-
-	// y mesuré depuis le haut de l’écran
-	int hudY_from_top = marginTop;
-
-	drawText2D("Battery", 20, viewport[3] - hudY_from_top, 0.6f, 1, 1, 1);
-	renderer.drawBatteryHUD(batteryLevel, 100, hudY_from_top, 200, hudHeight);
-	drawText2D(std::to_string((int)batteryLevel) + "%", 320, viewport[3] - hudY_from_top + 5, 0.6f, 1, 1, 1);
+	
+	renderer.renderHUD(batteryLevel, playerScore, WinX, WinY);
 
 
 	//drawText2D("Score: " + std::to_string(score), 20, hudY - 40, 0.6f, 1.0f, 1.0f, 0.0f);
@@ -3331,8 +3321,6 @@ int main(int argc, char** argv) {
 	if (!renderer.setRenderMeshesShaderProg("shaders/mesh.vert", "shaders/mesh.frag") ||
 		!renderer.setRenderTextShaderProg("shaders/ttf.vert", "shaders/ttf.frag"))
 		return(1);
-
-	renderer.initBatteryHUD();
 
 	//  GLUT main loop
 	glutMainLoop(); // infinite loop

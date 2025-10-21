@@ -1,8 +1,8 @@
-//
+ï»¿//
 // The code comes with no warranties, use it at your own risk.
 // You may use it, or parts of it, wherever you want.
 // 
-// Author: João Madeiras Pereira
+// Author: JoÃ£o Madeiras Pereira
 //
 #include <iostream>
 #include <fstream>
@@ -422,114 +422,127 @@ void Renderer::renderText(const TextCommand& text) {
     }
 }
 
-// call once after GL is ready (e.g. after glewInit / after renderer setup)
-void Renderer::initBatteryHUD() {
-    const char* vsSrc = R"(
-        #version 330 core
-        layout(location = 0) in vec2 aPos; // in [0..1]
-        uniform vec2 uPos;    // bottom-left pixel coords
-        uniform vec2 uSize;   // pixel w,h
-        uniform vec2 uViewport; // viewport width, height
-        void main() {
-            vec2 pixel = uPos + aPos * uSize;
-            float x = (pixel.x / uViewport.x) * 2.0 - 1.0;
-            float y = 1.0 - (pixel.y / uViewport.y) * 2.0;
-            gl_Position = vec4(x, y, 0.0, 1.0);
-        }
-    )";
 
-    const char* fsSrc = R"(
-        #version 330 core
-        out vec4 FragColor;
-        uniform vec3 uColor;
-        void main() { FragColor = vec4(uColor, 1.0); }
-    )";
-
-    // small helper inline: compile+link
-    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vs, 1, &vsSrc, nullptr); glCompileShader(vs);
-    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fs, 1, &fsSrc, nullptr); glCompileShader(fs);
-
-    hudProgram = glCreateProgram();
-    glAttachShader(hudProgram, vs);
-    glAttachShader(hudProgram, fs);
-    glLinkProgram(hudProgram);
-    glDeleteShader(vs); glDeleteShader(fs);
-
-    // quad in [0..1] space (two triangles)
-    float verts[] = {
-        0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f,
-        0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f
-    };
-
-    glGenVertexArrays(1, &hudVAO);
-    glGenBuffers(1, &hudVBO);
-    glBindVertexArray(hudVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, hudVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-    glBindVertexArray(0);
-}
-
-void Renderer::drawBatteryHUD(float batteryLevel, int x, int y, int width, int height)
-{
-    if (hudProgram == 0 || hudVAO == 0)
-        return;
-
-    // Clamp battery level entre 0 et 1
-    float pct = batteryLevel / 100.0f;
-    pct = std::max(0.0f, std::min(pct, 1.0f));
-
-    // Récupère la taille du viewport
-    int vp[4];
-    glGetIntegerv(GL_VIEWPORT, vp);
-
-    // Conversion Y : si on passe une coordonnée mesurée depuis le haut de l'écran (0 = top),
-    // on la convertit en coordonnée bottom-left attendue par le shader HUD.
-    float y_bottom = static_cast<float>(vp[3]) - static_cast<float>(y) - static_cast<float>(height);
-
+void Renderer::renderHUD(float batteryLevel, int score, int windowWidth, int windowHeight) {
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    glUseProgram(hudProgram);
-    glBindVertexArray(hudVAO);
+    // --- Projection orthographique HUD ---
+    gmu mu;
+    mu.loadIdentity(gmu::MODEL);
+    mu.loadIdentity(gmu::VIEW);
+    mu.loadIdentity(gmu::PROJECTION);
+    mu.ortho(0, windowWidth, 0, windowHeight, -1, 1);
+    mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+    float* hudPVM = mu.get(gmu::PROJ_VIEW_MODEL);
 
-    // Récupère les uniform locations
-    GLint locPos = glGetUniformLocation(hudProgram, "uPos");
-    GLint locSize = glGetUniformLocation(hudProgram, "uSize");
-    GLint locVP = glGetUniformLocation(hudProgram, "uViewport");
-    GLint locColor = glGetUniformLocation(hudProgram, "uColor");
+    // --- Initialisation shader HUD (une fois) ---
+    if (hudProgram == 0) {
+        const char* hudVS = R"(
+            #version 330 core
+            layout(location=0) in vec2 aPos;
+            uniform mat4 uPVM;
+            void main() { gl_Position = uPVM * vec4(aPos, 0.0, 1.0); }
+        )";
+        const char* hudFS = R"(
+            #version 330 core
+            uniform vec4 uColor;
+            out vec4 FragColor;
+            void main() { FragColor = uColor; }
+        )";
+        GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vs, 1, &hudVS, nullptr);
+        glCompileShader(vs);
+        GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fs, 1, &hudFS, nullptr);
+        glCompileShader(fs);
+        hudProgram = glCreateProgram();
+        glAttachShader(hudProgram, vs);
+        glAttachShader(hudProgram, fs);
+        glLinkProgram(hudProgram);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
 
-    // Envoie la taille du viewport
-    glUniform2f(locVP, (float)vp[2], (float)vp[3]);
+        glGenVertexArrays(1, &hudVAO);
+        glGenBuffers(1, &hudVBO);
+        glBindVertexArray(hudVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, hudVBO);
+        glBufferData(GL_ARRAY_BUFFER, 12 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+    }
 
-    // --- Fond de la batterie (gris foncé) ---
-    glUniform2f(locPos, (float)x, y_bottom);
-    glUniform2f(locSize, (float)width, (float)height);
-    glUniform3f(locColor, 0.15f, 0.15f, 0.15f);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    // --- Fonction lambda pour dessiner un rectangle ---
+    auto drawRect = [&](float x, float y, float w, float h, float r, float g, float b, float a) {
+        float verts[12] = {
+            x, y,
+            x + w, y,
+            x + w, y + h,
+            x, y,
+            x + w, y + h,
+            x, y + h
+        };
+        glUseProgram(hudProgram);
+        glUniformMatrix4fv(glGetUniformLocation(hudProgram, "uPVM"), 1, GL_FALSE, hudPVM);
+        glUniform4f(glGetUniformLocation(hudProgram, "uColor"), r, g, b, a);
+        glBindVertexArray(hudVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, hudVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
+        };
 
-    // --- Barre de remplissage (du vert au rouge) ---
-    float fillW = width * pct;
-    float r = 1.0f - pct;
-    float g = pct;
+    // ============================================
+    //        POSITION DU HUD (fixe en haut)
+    // ============================================
 
-    glUniform2f(locPos, (float)x, y_bottom);
-    glUniform2f(locSize, fillW, (float)height);
-    glUniform3f(locColor, r, g, 0.0f);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    float marginTop = 40.0f;   // distance depuis le haut de la fenÃªtre
+    float baselineY = windowHeight - marginTop;
 
-    // Nettoyage
-    glBindVertexArray(0);
-    glUseProgram(0);
+    // --- Score (coin supÃ©rieur droit) ---
+    TextCommand txt;
+    txt.pvm = hudPVM;
+    txt.size = 0.5f;
 
-    glDisable(GL_BLEND);
+    txt.align_x = Align::Right;
+    txt.position[0] = windowWidth - 220.0f; 
+    txt.position[1] = baselineY + 680.0f;
+    txt.str = "Score: " + std::to_string(score);
+    renderText(txt);
+
+    // --- Batterie (gauche) ---
+    txt.align_x = Align::Left;
+    txt.position[0] = 40.0f;
+    txt.position[1] = baselineY + 680.0f;
+    txt.str = "Battery";
+    renderText(txt);
+
+    // --- Pourcentage ---
+    txt.position[0] = 450.0f;
+    txt.str = std::to_string((int)batteryLevel) + "%";
+    renderText(txt);
+
+    // --- Barre de batterie (entre les deux textes) ---
+    float laneLeft = 190.0f;
+    float laneRight = 420.0f;
+    float barY = baselineY - 20.0f;
+    float barH = 20.0f;
+    float barW = laneRight - laneLeft;
+
+    float fill = batteryLevel / 100.0f;
+    if (fill < 0.0f) fill = 0.0f;
+    if (fill > 1.0f) fill = 1.0f;
+    float fillW = barW * fill;
+
+    float r = 1.0f - fill;
+    float g = fill;
+    float b = 0.2f;
+
+    drawRect(laneLeft, barY, barW, barH, 0.3f, 0.3f, 0.3f, 1.0f);
+    drawRect(laneLeft, barY, fillW, barH, r, g, b, 1.0f);
+
     glEnable(GL_DEPTH_TEST);
 }
-
-
-
 
