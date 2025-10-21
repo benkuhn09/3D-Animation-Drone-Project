@@ -2656,10 +2656,6 @@ void renderSim(void) {
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	drawTextWithBackground("2025 Drone Project", 100, 200, 0.5f,
-		1.0f, 1.0f, 1.0f, 1.0f,      // text color
-		0.0f, 0.0f, 0.0f, 0.5f);
-
 	if (showRearCam) {
 		int vpHUD[4]; glGetIntegerv(GL_VIEWPORT, vpHUD);
 		float W = (float)vpHUD[2], H = (float)vpHUD[3];
@@ -2676,11 +2672,7 @@ void renderSim(void) {
 	}
 
 	//  HUD (Battery + Score)
-	
 	renderer.renderHUD(batteryLevel, playerScore, WinX, WinY);
-
-
-	//drawText2D("Score: " + std::to_string(score), 20, hudY - 40, 0.6f, 1.0f, 1.0f, 0.0f);
 
 	//  GAME OVER screen
 	if (gameOver) {

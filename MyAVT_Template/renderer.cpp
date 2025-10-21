@@ -505,7 +505,9 @@ void Renderer::renderHUD(float batteryLevel, int score, int windowWidth, int win
     TextCommand txt;
     txt.pvm = hudPVM;
     txt.size = 0.5f;
-
+    txt.color[0] = 0;
+    txt.color[1] = 0;
+    txt.color[2] = 0;
     txt.align_x = Align::Right;
     txt.position[0] = windowWidth - 220.0f; 
     txt.position[1] = baselineY + 680.0f;
@@ -519,10 +521,6 @@ void Renderer::renderHUD(float batteryLevel, int score, int windowWidth, int win
     txt.str = "Battery";
     renderText(txt);
 
-    // --- Pourcentage ---
-    txt.position[0] = 450.0f;
-    txt.str = std::to_string((int)batteryLevel) + "%";
-    renderText(txt);
 
     // --- Barre de batterie (entre les deux textes) ---
     float laneLeft = 190.0f;
@@ -542,6 +540,14 @@ void Renderer::renderHUD(float batteryLevel, int score, int windowWidth, int win
 
     drawRect(laneLeft, barY, barW, barH, 0.3f, 0.3f, 0.3f, 1.0f);
     drawRect(laneLeft, barY, fillW, barH, r, g, b, 1.0f);
+
+    // --- Pourcentage ---
+    txt.position[0] = 450.0f;
+    txt.color[0] = r;
+    txt.color[1] = g;
+    txt.color[2] = b;
+    txt.str = std::to_string((int)batteryLevel) + "%";
+    renderText(txt);
 
     glEnable(GL_DEPTH_TEST);
 }
