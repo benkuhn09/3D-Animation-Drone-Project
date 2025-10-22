@@ -39,7 +39,7 @@ void main () {
 
     if (texMode == 14) {
         vec3 Tview = normalize(m_normal * tangent.xyz);
-        vec3 Bview = tangent.w * normalize(cross(Nview, Tview)); // handedness from tangent.w
+        vec3 Bview = tangent.w * normalize(cross(Nview, Tview)); //tangent.w
         DataOut.T = Tview;
         DataOut.B = Bview;
         DataOut.N = Nview;

@@ -76,9 +76,7 @@ void main() {
 
     
 
-    //------------------------------------------------------
-    // Compute final per-fragment normal (supports bump map)
-    //------------------------------------------------------
+    //computing normal (regular or fake, depending on texMode)
     vec3 n;
     if (texMode == 14) {
         vec3 n_ts = normalize(2.0 * texture(texmap10, DataIn.tex_coord).rgb - 1.0);
@@ -91,9 +89,7 @@ void main() {
 
     vec3 e = normalize(DataIn.eye);
 
-    //------------------------------------------------------
-    // Lighting accumulation
-    //------------------------------------------------------
+    //lighting
     vec3 ambient = vec3(0.2);
     vec3 diffuse = vec3(0.0);
     vec3 specular = vec3(0.0);
@@ -160,9 +156,9 @@ void main() {
 
     vec3 lighting = ambient + diffuse + specular;
 
-    //------------------------------------------------------
-    // Texture application
-    //------------------------------------------------------
+
+    //Texture Application
+
     vec4 texel, texel1;
     vec4 baseColor;
     float alpha = mat.diffuse.a;
@@ -267,7 +263,7 @@ void main() {
 
         // Combine texture alpha (tA.a) with material alpha from CPU
         float aTex = tA.a;
-        float aMat = mat.diffuse.a;  // set on CPU, e.g., 0.6f for the floor
+        float aMat = mat.diffuse.a;  
         float aOut = aTex * aMat;
 
         baseColor = vec4(rgb, aOut);
@@ -279,9 +275,7 @@ void main() {
         alpha *= texel.a;
     }
 
-    //------------------------------------------------------
-    // Fog
-    //------------------------------------------------------
+    //fog
     float dist = (depthFog == 0) ? abs(DataIn.posEye.z) : length(DataIn.posEye);
     float fogAmount = clamp(exp(-dist * fogDensity), 0.0, 1.0);
 

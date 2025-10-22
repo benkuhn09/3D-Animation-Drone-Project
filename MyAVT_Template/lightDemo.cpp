@@ -1,15 +1,11 @@
 ﻿//
-// AVT 2025: Texturing with Phong Shading and Text rendered with TrueType library
+// AVT Drone Project 2025
 // The text rendering was based on https://dev.to/shreyaspranav/how-to-render-truetype-fonts-in-opengl-using-stbtruetypeh-1p5k
 // You can also learn an alternative with FreeType text: https://learnopengl.com/In-Practice/Text-Rendering
-// This demo was built for learning purposes only.
-// Some code could be severely optimised, but I tried to
-// keep as simple and clear as possible.
-//
-// The code comes with no warranties, use it at your own risk.
-// You may use it, or parts of it, wherever you want.
+// Normal Map texture from Hons.Elle at https://gamebanana.com/models/4652
+// Skybox textures from Spiny at https://opengameart.org/content/cloudy-skyboxes
 // 
-// Author: João Madeiras Pereira
+// Authors: Benjamin Raymond Kuhn, Gabriel Picado Bispo, Zoé Danielle Colette Hombourger (117219)
 //
 
 #include <math.h>
@@ -91,10 +87,6 @@ bool fogEnabled = true;
 
 float aspectRatio = 1.0f;
 
-bool debugDrawFlyingAABB = false;  // toggle with 'b'
-int  debugFlyIndex = 0;           // select which flying object, [0..NUM_FLYING_OBJECTS-1]
-int  wireCubeMeshID = -1;         // green wire cube used for drawing AABBs
-
 
 struct ImportedModel {
 	const aiScene* scene;
@@ -153,42 +145,6 @@ static void aabbFromXformedBox(const float localMin[3], const float localMax[3],
 		outMin[2] = std::min(outMin[2], w[2]); outMax[2] = std::max(outMax[2], w[2]);
 	}
 }
-
-// Draw a wireframe AABB given min/max in world space using a green cube mesh.
-// Assumes renderer meshes shader is active.
-/*static void drawWireAABB(const float bmin[3], const float bmax[3]) {
-	// scale and translate a unit cube in [0,1]^3
-	const float sx = (bmax[0] - bmin[0]);
-	const float sy = (bmax[1] - bmin[1]);
-	const float sz = (bmax[2] - bmin[2]);
-
-	mu.pushMatrix(gmu::MODEL);
-	mu.translate(gmu::MODEL, bmin[0], bmin[1], bmin[2]);
-	mu.scale(gmu::MODEL, sx, sy, sz);
-
-	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-	mu.computeNormalMatrix3x3();
-
-	dataMesh d{};
-	d.meshID = wireCubeMeshID;   // green cube created in buildScene
-	d.texMode = 0;
-	d.vm = mu.get(gmu::VIEW_MODEL);
-	d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
-	d.normal = mu.getNormalMatrix();
-
-	// draw as wireframe (line mode) + thicker lines, backfaces visible
-	glDisable(GL_CULL_FACE);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-	glLineWidth(2.0f);
-
-	renderer.renderMesh(d);
-
-	// restore state
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glEnable(GL_CULL_FACE);
-
-	mu.popMatrix(gmu::MODEL);
-}*/
 
 
 /*Lighting Globals*/
@@ -280,7 +236,7 @@ bool gPrintBillboardCoords = false;  // set false to stop printing
 
 struct Package {
 	int i, j;        // which building it's on (grid indices)
-	float pos[3];    // world position (x, y, z)
+	float pos[3];    // world position (x,y,z)
 	bool active;     // true if visible
 
 	bool beingCarried = false;
@@ -1382,79 +1338,7 @@ void drawText2D(const std::string& msg, int x, int y, float scale,
 	glEnable(GL_DEPTH_TEST);
 }
 
-void drawTextWithBackground(const std::string& msg, int x, int y, float scale,
-	float textR, float textG, float textB, float textA,
-	float bgR, float bgG, float bgB, float bgA,
-	float paddingX = 10.0f, float paddingY = 5.0f)
-{
-	if (!fontLoaded) return;
 
-	// --- estimate text size in pixels (same heuristic you used before) ---
-	float textWidth = msg.size() * 20.0f * scale;  // tune if you have a better measurer
-	float textHeight = 40.0f * scale;
-
-	// background rectangle in screen-pixel coords
-	float bgX = x - paddingX;
-	float bgY = y - paddingY;
-	float bgW = textWidth + 2.0f * paddingX;
-	float bgH = textHeight + 2.0f * paddingY;
-
-	// --- HUD state: depth off, blending on ---
-	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
-	GLboolean blendWasOn = glIsEnabled(GL_BLEND);
-	if (depthWasOn) glDisable(GL_DEPTH_TEST);
-	if (!blendWasOn) glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	// --- set up 2D ortho in pixels ---
-	int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
-	mu.loadIdentity(gmu::MODEL);
-	mu.loadIdentity(gmu::VIEW);
-
-	mu.pushMatrix(gmu::PROJECTION);
-	mu.loadIdentity(gmu::PROJECTION);
-	mu.ortho((float)vp[0], (float)(vp[0] + vp[2] - 1),
-		(float)vp[1], (float)(vp[1] + vp[3] - 1),
-		-1.0f, 1.0f);
-
-	// --- render a colored quad via the renderer (no glBegin) ---
-	renderer.activateRenderMeshesShaderProg();
-
-	// position quad at the center of the bg rect, then scale to its size
-	mu.pushMatrix(gmu::MODEL);
-	mu.translate(gmu::MODEL, bgX + 0.5f * bgW, bgY + 0.5f * bgH, 0.0f);
-	mu.scale(gmu::MODEL, bgW, bgH, 1.0f);
-
-	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-	mu.computeNormalMatrix3x3();
-
-	dataMesh d{};
-	d.meshID = (smokeQuadMeshID >= 0) ? smokeQuadMeshID : stencilMaskMeshID; // any unit 1x1 quad
-	d.texMode = 0; // flat color
-	d.vm = mu.get(gmu::VIEW_MODEL);
-	d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
-	d.normal = mu.getNormalMatrix();
-
-	// temporarily override the quad's diffuse with the bg color (incl. alpha)
-	float savedDiff[4];
-	memcpy(savedDiff, renderer.myMeshes[d.meshID].mat.diffuse, sizeof(savedDiff));
-	float bgCol[4] = { bgR, bgG, bgB, bgA };
-	memcpy(renderer.myMeshes[d.meshID].mat.diffuse, bgCol, sizeof(bgCol));
-
-	renderer.renderMesh(d);
-
-	// restore material + matrices
-	memcpy(renderer.myMeshes[d.meshID].mat.diffuse, savedDiff, sizeof(savedDiff));
-	mu.popMatrix(gmu::MODEL);
-	mu.popMatrix(gmu::PROJECTION);
-
-	// --- draw the text on top (uses your text shader path) ---
-	drawText2D(msg, x, y, scale, textR, textG, textB, textA);
-
-	// --- restore state ---
-	if (!blendWasOn) glDisable(GL_BLEND);
-	if (depthWasOn)  glEnable(GL_DEPTH_TEST);
-}
 
 static void estimateTextSize(const std::string& s, float size, float& outW, float& outH) {
 	// tuned to your 2D defaults: ~20 px advance and ~40 px line-height at size=1.0
@@ -1659,9 +1543,6 @@ static void renderBillboardLabelAt(const float worldPos[3], const Camera& cam,
 	mu.popMatrix(gmu::MODEL);
 }
 
-
-
-
 float lastTime = 0.0f;
 
 void renderSmokeParticles(const Camera& cam) {
@@ -1722,43 +1603,7 @@ void renderSmokeParticles(const Camera& cam) {
 	if (!depthWasOn) glDisable(GL_DEPTH_TEST);
 }
 
-static void drawSkybox(const Camera& cam)
-{
-	if (skyboxCubeMeshID < 0) return;
-	renderer.activateRenderMeshesShaderProg();
 
-	GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
-	if (cullWasOn) glCullFace(GL_FRONT);
-
-	// DO NOT disable depth test here.
-	// We only disable depth WRITES so skybox doesn’t affect depth.
-	glDepthMask(GL_FALSE);
-
-	mu.pushMatrix(gmu::MODEL);
-	mu.loadIdentity(gmu::MODEL);
-	mu.translate(gmu::MODEL, cam.pos[0], cam.pos[1], cam.pos[2]);
-
-	const float SKYBOX_SIZE = 500.0f;
-	mu.scale(gmu::MODEL, SKYBOX_SIZE, SKYBOX_SIZE, SKYBOX_SIZE);
-	mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f);
-
-	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-	mu.computeNormalMatrix3x3();
-
-	dataMesh d{};
-	d.meshID = skyboxCubeMeshID;
-	d.texMode = 10;
-	d.vm = mu.get(gmu::VIEW_MODEL);
-	d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
-	d.normal = mu.getNormalMatrix();
-
-	renderer.renderMesh(d);
-
-	mu.popMatrix(gmu::MODEL);
-
-	glDepthMask(GL_TRUE);
-	if (cullWasOn) glCullFace(GL_BACK);
-}
 
 static void drawSkyboxBackground(const Camera& cam)
 {
@@ -2039,7 +1884,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 
 				dataMesh depthOnly{};
 				depthOnly.meshID = mID;
-				depthOnly.texMode = 11; // same is fine; color is masked off
+				depthOnly.texMode = 11; 
 				depthOnly.vm = mu.get(gmu::VIEW_MODEL);
 				depthOnly.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 				depthOnly.normal = mu.getNormalMatrix();
@@ -2052,7 +1897,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		// restore normal writes
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-		float neutralFloor[4] = { 0.55f, 0.55f, 0.6f, 0.7f }; // adjust alpha to control reflection strength
+		float neutralFloor[4] = { 0.55f, 0.55f, 0.6f, 0.7f }; // adj alpha to control reflection strength
 		memcpy(renderer.myMeshes[0].mat.diffuse, neutralFloor, sizeof(neutralFloor));
 
 		float neutralAmbient[4] = { 0.25f, 0.25f, 0.3f, 1.0f };
@@ -2155,7 +2000,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			const float* beamPos = (!package.beingCarried) ? package.pos : package.destPos;
 			float beamHeight = 14.0f, beamRadius = 3.0f;
 
-			// Same MODEL setup you already had — inside the lambda so both passes use the exact matrices.
+			
 			auto drawBeamGeometry = [&]() {
 				dataMesh data{};
 				mu.pushMatrix(gmu::MODEL);
@@ -2189,12 +2034,11 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	glStencilFunc(GL_EQUAL, 1, 0xFF);
 	glStencilMask(0x00);
 	glClear(GL_DEPTH_BUFFER_BIT);
-	// --- 3) Draw the floor semi-transparent over the reflection
+	// --- 3) Drawing floor semi-transparent over the reflection
 	{
 		{
 			setLightsForPass(false);
 
-			// ✅ Ensure the fog matches the regular scene fog
 			if (fogEnabled) {
 				int depthFog = 1;
 				float fogColor[3] = { 0.5f, 0.5f, 0.6f };
@@ -2202,7 +2046,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 				renderer.setFogParams(depthFog, fogColor, fogDensity);
 			}
 
-			// ✅ Make sure the shader is correct for the mesh pass
+			// Make sure the shader is correct for the mesh pass
 			renderer.activateRenderMeshesShaderProg();
 
 			float saved[4];
@@ -2230,19 +2074,18 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		}
 	}
 
-	// We’re done using stencil for reflection
+	// done with stencil for reflection
 	glDisable(GL_STENCIL_TEST);
 	glStencilMask(0xFF);
 
 	// =====================================================================
 	//                       SHADOWS OVER THE FLOOR
-	//  (drawn AFTER the floor so they darken the reflection underneath)
 	// =====================================================================
 	{
 		glEnable(GL_STENCIL_TEST);
 		glStencilFunc(GL_EQUAL, 1, 0xFF);   // only draw where floor stencil == 1
 		glStencilMask(0x00);
-		// reuse your existing shadow block exactly, just placed here:
+
 		float S[16];
 		computeShadowMatrixOnFloor(S);
 
@@ -2315,21 +2158,21 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		}
 
 		// Spider shadows
-		renderer.activateRenderMeshesShaderProg(); // make sure the mesh shader is bound
+		renderer.activateRenderMeshesShaderProg(); 
 		for (const auto& M : gImported) {
 			mu.pushMatrix(gmu::MODEL);
 
 			// Project to floor
 			mu.multMatrix(gmu::MODEL, S);
 
-			// Apply the same instance transform you use in drawImportedModel()
+			// Apply same instance transform as in drawImportedModel()
 			mu.translate(gmu::MODEL, M.pos[0], M.pos[1], M.pos[2]);
 			if (M.rot[0] != 0) mu.rotate(gmu::MODEL, M.rot[0], 1, 0, 0);
 			if (M.rot[1] != 0) mu.rotate(gmu::MODEL, M.rot[1], 0, 1, 0);
 			if (M.rot[2] != 0) mu.rotate(gmu::MODEL, M.rot[2], 0, 0, 1);
 			mu.scale(gmu::MODEL, M.scale * gScaleFactor, M.scale * gScaleFactor, M.scale * gScaleFactor);
 
-			// draw shadow (tweak alpha to taste)
+			// draw shadow (change alpha to taste)
 			aiRecursive_render_AVT_Shadow(M.scene->mRootNode, 0.45f);
 
 			mu.popMatrix(gmu::MODEL);
@@ -2371,7 +2214,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 					int mID = city[i][j].meshID;
 					if (mID < 0) continue;
 
-					// Skip glass if you want softer shadows (optional)
+					// shadow darkness depends on building type
 					bool isGlass = (mID == glassCubeMeshID || mID == glassCylMeshID);
 					float shadowAlpha = isGlass ? 0.25f : 0.4f;
 
@@ -2416,7 +2259,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	}
 
 	// =====================================================================
-	//                         NORMAL (UNMIRRORED) SCENE
+	//                         NORMAL SCENE
 	// =====================================================================
 
 	setLightsForPass(/*reflected=*/false);
@@ -2509,7 +2352,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 				int mID = city[i][j].meshID;
 				if (mID != glassCubeMeshID && mID != glassCylMeshID) continue;
 
-				// *** use the exact same transforms as the blended pass ***
+				// same transforms as the blended pass
 				mu.pushMatrix(gmu::MODEL);
 				// (same translate/scale/rotate as above)
 				const float spacing = 7.2f;
@@ -2536,7 +2379,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 
 				dataMesh depthOnly{};
 				depthOnly.meshID = mID;
-				depthOnly.texMode = 11; // same is fine; color is masked off
+				depthOnly.texMode = 11; 
 				depthOnly.vm = mu.get(gmu::VIEW_MODEL);
 				depthOnly.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
 				depthOnly.normal = mu.getNormalMatrix();
@@ -2549,7 +2392,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		// restore normal writes
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-		float neutralFloor[4] = { 0.55f, 0.55f, 0.6f, 0.7f }; // adjust alpha to control reflection strength
+		float neutralFloor[4] = { 0.55f, 0.55f, 0.6f, 0.7f }; // adjust alpha to vary reflection strength
 		memcpy(renderer.myMeshes[0].mat.diffuse, neutralFloor, sizeof(neutralFloor));
 
 		float neutralAmbient[4] = { 0.25f, 0.25f, 0.3f, 1.0f };
@@ -2717,7 +2560,7 @@ static void drawHudMaskBorderCore(float cx, float cy, float sizePx) {
 	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
 	mu.computeNormalMatrix3x3();
 
-	// temporarily color it
+	// temporarily color
 	float savedDiffuse[4];
 	memcpy(savedDiffuse, renderer.myMeshes[stencilMaskMeshID].mat.diffuse, sizeof(savedDiffuse));
 	float yellow[4] = { 1,1,0,1 };
@@ -2760,7 +2603,7 @@ static bool worldToScreen_activeCam(const float world[4], int& outX, int& outY) 
 	mu.lookAt(cams[activeCam].pos[0], cams[activeCam].pos[1], cams[activeCam].pos[2],
 		cams[activeCam].target[0], cams[activeCam].target[1], cams[activeCam].target[2], 0, 1, 0);
 
-	// ---- FIX: copy to a mutable vector (ensure w = 1 for points, 0 for directions)
+	// copy to a mutable vector (ensure w = 1 for points, 0 for directions)
 	float wv[4] = { world[0], world[1], world[2], world[3] };
 
 	float eye[4];  mu.multMatrixPoint(gmu::VIEW, wv, eye);
@@ -2820,7 +2663,7 @@ void render_flare(FLARE_DEF* flare, int lx, int ly, int* m_viewport) {
 
 	mu.loadIdentity(gmu::VIEW);
 
-	// Ensure shader samplers think TU9 == 9 (you already do this earlier each frame)
+	// Ensure shader samplers think TU9 == 9 
 	// renderer.setTexUnit(9, 9);
 
 	for (int i = 0; i < flare->nPieces; ++i) {
@@ -2916,17 +2759,17 @@ void renderSim(void) {
 		glStencilFunc(GL_ALWAYS, 1, 0xFF);
 		glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
 
-		// make sure BOTH triangles of the quad write into stencil
+		
 		GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
 		if (cullWasOn) glDisable(GL_CULL_FACE);
 
 		// compute inset rect (in pixels)
 		int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
 		float W = float(vp[2]), H = float(vp[3]);
-		float size = rearMaskSizePx + 1.0f;         // +1px to kill the thin border
+		float size = rearMaskSizePx + 1.0f;         
 		float margin = rearMaskMarginPx;
 
-		// center coordinates of inset mask
+		// center coords of inset mask
 		float cx = W - margin - size * 0.5f;
 		float cy = margin + size * 0.5f;
 
@@ -2940,7 +2783,6 @@ void renderSim(void) {
 		renderer.activateRenderMeshesShaderProg();
 		mu.pushMatrix(gmu::PROJECTION);
 		mu.loadIdentity(gmu::PROJECTION);
-		// match your other pixel-accurate HUD paths to avoid half-pixel gaps
 		mu.ortho(0.0f, W - 1.0f, 0.0f, H - 1.0f, -1.0f, 1.0f);
 
 		mu.loadIdentity(gmu::VIEW);
@@ -2970,9 +2812,9 @@ void renderSim(void) {
 		glStencilMask(0x00); // don't change stencil during scene
 
 		// --- MAIN WORLD PASS (full screen / active camera) ---
-		// Stencil has 1s in the inset; we just render normally here.
+		// Stencil has 1s in the inset; render normally here
 		glStencilMask(0x00);            // don’t modify stencil
-		glStencilFunc(GL_NOTEQUAL, 1, 0xFF);  // draw everywhere EXCEPT where stencil == 1
+		glStencilFunc(GL_NOTEQUAL, 1, 0xFF);  // everywhere except where stencil==1
 
 		drawWorldNoHUD_FromCamera(cams[activeCam], aspectRatio);
 
@@ -3059,7 +2901,6 @@ void renderSim(void) {
 		float size = rearMaskSizePx, margin = rearMaskMarginPx;
 		float cx = W - margin - size * 0.5f;
 		float cy = margin + size * 0.5f;
-		//drawHudMaskBorderCore(cx, cy, size);
 	}
 
 	if (paused) {
@@ -3112,45 +2953,15 @@ void keyboardDown(unsigned char key, int x, int y) {
 		if (pointLightsOn) directionalLightOn = false;
 		break;
 	case 'h': spotLightsOn = !spotLightsOn; break;
-
-		/*case 'l':
-			spotlight_mode = !spotlight_mode;
-			printf(spotlight_mode ? "Point light disabled. Spot light enabled\n"
-				: "Spot light disabled. Point light enabled\n");
-			break;*/
-
-			/*case 'r':
-				alpha = 57.0f; beta = 18.0f; r = 45.0f;
-				camX = r * sin(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
-				camZ = r * cos(alpha * 3.14f / 180.0f) * cos(beta * 3.14f / 180.0f);
-				camY = r * sin(beta * 3.14f / 180.0f);
-				break;*/
-
 	case 'm': glEnable(GL_MULTISAMPLE); break;
 	case 'n': 
 		directionalLightOn = !directionalLightOn;
 		if (directionalLightOn) pointLightsOn = false; // ensure only one main source
 		break;
 	case 'f': fogEnabled = !fogEnabled; break;
-
-	case 'b': // toggle wire AABB
-		debugDrawFlyingAABB = !debugDrawFlyingAABB;
-		break;
-	case '[': // prev flying object
-		if (NUM_FLYING_OBJECTS > 0) {
-			debugFlyIndex = (debugFlyIndex - 1 + NUM_FLYING_OBJECTS) % NUM_FLYING_OBJECTS;
-		}
-		break;
-	case ']': // next flying object
-		if (NUM_FLYING_OBJECTS > 0) {
-			debugFlyIndex = (debugFlyIndex + 1) % NUM_FLYING_OBJECTS;
-		}
-		break;
-
 	case 'p':
 		paused = !paused; // toggle pause
 		break;
-
 	case 'r':
 		if (gameOver) {
 			resetDrone();
@@ -3159,12 +2970,9 @@ void keyboardDown(unsigned char key, int x, int y) {
 			playerScore = 0;
 		}
 		break;
-
 	case 'l':
 		flareEffect = !flareEffect;
 		break;
-
-
 	}
 
 }
@@ -3180,8 +2988,6 @@ void specialDown(int key, int x, int y) {
 void specialUp(int key, int x, int y) {
 	specialKeys[key] = false;
 }
-
-
 
 // ------------------------------------------------------------
 //
@@ -3480,25 +3286,6 @@ void buildScene()
 		stencilMaskMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
-	// Wireframe cube for AABB debug drawing
-	{
-		MyMesh wire = createCube();  // unit cube in [0,1]^3
-
-		// Bright green material (no texture)
-		float amb[] = { 0.0f, 0.25f, 0.0f, 1.0f };
-		float dif[] = { 0.0f, 0.9f,  0.0f, 1.0f };
-		float spec[] = { 0.1f, 0.1f, 0.1f, 1.0f };
-		float emis[] = { 0.0f, 0.0f,  0.0f, 1.0f };
-		wire.mat.shininess = 10.0f; wire.mat.texCount = 0;
-		memcpy(wire.mat.ambient, amb, 4 * sizeof(float));
-		memcpy(wire.mat.diffuse, dif, 4 * sizeof(float));
-		memcpy(wire.mat.specular, spec, 4 * sizeof(float));
-		memcpy(wire.mat.emissive, emis, 4 * sizeof(float));
-
-		renderer.myMeshes.push_back(wire);
-		wireCubeMeshID = (int)renderer.myMeshes.size() - 1;
-	}
-
 	{
 		MyMesh sky = createCube();
 		float amb[] = { 0,0,0,1 }, diff[] = { 1,1,1,1 }, spec[] = { 0,0,0,1 }, emis[] = { 0,0,0,1 };
@@ -3510,16 +3297,6 @@ void buildScene()
 		renderer.myMeshes.push_back(sky);
 		skyboxCubeMeshID = (int)renderer.myMeshes.size() - 1;
 	}
-
-	// create geometry and VAO of the torus
-	//amesh = createTorus(0.5f, 1.5f, 20, 20);
-	//memcpy(amesh.mat.ambient, amb, 4 * sizeof(float));
-	//memcpy(amesh.mat.diffuse, diff, 4 * sizeof(float));
-	//memcpy(amesh.mat.specular, spec, 4 * sizeof(float));
-	//memcpy(amesh.mat.emissive, emissive, 4 * sizeof(float));
-	//amesh.mat.shininess = shininess;
-	//amesh.mat.texCount = texcount;
-	//renderer.myMeshes.push_back(amesh);
 
 	//The truetypeInit creates a texture object in TexObjArray for storing the fontAtlasTexture
 
@@ -3626,7 +3403,7 @@ void buildScene()
 		beamMeshID = (int)renderer.myMeshes.size() - 1;
 	}
 
-	// ---- Smoke particle billboard quad ----
+	// Smoke particle billboard quad
 	{
 		MyMesh smoke = createQuad(1.0f, 1.0f); // unit quad
 		float amb[] = { 0.0f, 0.0f, 0.0f, 0.0f };
