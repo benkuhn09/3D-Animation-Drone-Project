@@ -4,9 +4,17 @@ UPDATES FROM 22/10/25 LAB DISCUSSION/ASSESSMENT
 - The spider in the scene is reflected onto the floor, and has an associated planar shadow.
 - Bump mapping on the floor is made more obvious. Please uncomment line 87 in mesh.frag if you would like to verify that the normal map is correctly utilized.
 
-This project depicts a drone flying through a city.
+Text Billboard Implementation: The label above the beam is a cylindrical billboard. We calculate the rotation matrix that makes the text face the camera around the y-axis in makeBillboardAt(). Then we render the text at that position using alpha blending in renderBillboardLabelAt().
+
+This project depicts a drone flying through a city in a game. The goal is to pick up a package on the top the indicated building, and drop it off at the next indicated building. The drone's battery level depletes over time, during movement, and (significantly) upon collision with a building or a flying object. The player accumulates a score throughout the game, corresponding to the battery level when the package is dropped off. The drone battery is fully recharged after dropping off a package successfully.
+
 
 Controls:
+
+Game Play
+P → Pause/Resume
+R → Reset (active after game is lost)
+
 Drone Movement
 Arrow Up ⬆️ → Pitch nose up and move forward.
 Arrow Down ⬇️ → Pitch nose down and move backward (slower drift than forward).
