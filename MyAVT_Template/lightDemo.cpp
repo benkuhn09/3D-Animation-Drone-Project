@@ -262,6 +262,8 @@ float batteryLevel = 100.0f;      // 100.0 = full, 0.0 = empty
 int playerScore = 0;
 bool hasPackage = false;
 bool gameOver = false;
+float lastFlyingCollisionTime = -1.0f;
+const float flyingCollisionCooldown = 2.0f;
 
 // battery parameters
 const float BATTERY_DRAIN_RATE = 2.0f;  // proportional to throttle
@@ -1154,15 +1156,17 @@ void updateDrone(float deltaTime) {
 		float oMin[3], oMax[3];
 		computeFlyingObjectAABB(o, oMin, oMax);
 		if (aabbIntersect(dMin, dMax, oMin, oMax)) {
-			batteryLevel -= COLLISION_PENALTY;
-			batteryLevel = std::max(0.0f, batteryLevel);
-
-			// Optional: cooldown handling to avoid double-counting rapid collisions
 			float now = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
-			lastCollisionTime = now;
 
-			resetDrone();
-			break;
+			// Apply cooldown specifically for flying objects
+			if (lastFlyingCollisionTime < 0 || now - lastFlyingCollisionTime > flyingCollisionCooldown) {
+				batteryLevel -= COLLISION_PENALTY;
+				batteryLevel = std::max(0.0f, batteryLevel);
+
+				lastFlyingCollisionTime = now;
+				resetDrone();
+			}
+			break; // stop after first collision
 		}
 	}
 
