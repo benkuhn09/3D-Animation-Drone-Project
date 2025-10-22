@@ -384,7 +384,7 @@ static int    skyboxCubeMeshID = -1;
 static int gNormalMapTexIndex = -1;
 
 // ----- Lens flare globals -----
-bool flareEffect = false;      // toggled with 'l' (only when spotlights are OFF)
+bool flareEffect = false;      // toggled with 'l' 
 FLARE_DEF gFlare;              // parsed from flare.txt
 GLuint FlareTextureArray[NTEXTURES] = { 0 };  // crcl, flar, hxgn, ring, sun
 // we'll reuse the smoke billboard quad for flare elements:
@@ -3028,7 +3028,7 @@ void renderSim(void) {
 			1.0f, 1.0f, 1.0f, 1.0f);
 	}
 
-	if (flareEffect && pointLightsOn && !spotLightsOn) {
+	if (flareEffect && pointLightsOn) {
 		int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
 
 		// Choose one point light to “flare”—template uses a single point light.
@@ -3161,8 +3161,7 @@ void keyboardDown(unsigned char key, int x, int y) {
 		break;
 
 	case 'l':
-		if (!spotLightsOn) 
-			flareEffect = !flareEffect;
+		flareEffect = !flareEffect;
 		break;
 
 
