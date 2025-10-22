@@ -262,6 +262,8 @@ float batteryLevel = 100.0f;      // 100.0 = full, 0.0 = empty
 int playerScore = 0;
 bool hasPackage = false;
 bool gameOver = false;
+float lastFlyingCollisionTime = -1.0f;
+const float flyingCollisionCooldown = 2.0f;
 
 // battery parameters
 const float BATTERY_DRAIN_RATE = 2.0f;  // proportional to throttle
@@ -338,7 +340,7 @@ struct FlyingObject {
 
 std::vector<FlyingObject> flyingObjects;
 
-const int   NUM_FLYING_OBJECTS = 8;
+const int   NUM_FLYING_OBJECTS = 4;
 const float SPAWN_RADIUS = 45.0f;  // birth ring radius (XZ)
 const float KILL_RADIUS = 65.0f;  // die when too far from center
 const float MIN_Y = 0.0f;
@@ -1154,8 +1156,17 @@ void updateDrone(float deltaTime) {
 		float oMin[3], oMax[3];
 		computeFlyingObjectAABB(o, oMin, oMax);
 		if (aabbIntersect(dMin, dMax, oMin, oMax)) {
-			resetDrone();
-			break;
+			float now = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+
+			// Apply cooldown specifically for flying objects
+			if (lastFlyingCollisionTime < 0 || now - lastFlyingCollisionTime > flyingCollisionCooldown) {
+				batteryLevel -= COLLISION_PENALTY;
+				batteryLevel = std::max(0.0f, batteryLevel);
+
+				lastFlyingCollisionTime = now;
+				resetDrone();
+			}
+			break; // stop after first collision
 		}
 	}
 
@@ -1548,7 +1559,7 @@ static void renderBillboardLabelAt(const float worldPos[3], const Camera& cam,
 	if (!fontLoaded) return;
 
 	// Text color (defaults to white)
-	float txCol[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	float txCol[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 	if (txtRGBA) memcpy(txCol, txtRGBA, 4 * sizeof(float));
 
 	// Billboard matrix that faces the camera (cylindrical)
@@ -1695,6 +1706,81 @@ static void drawSkybox(const Camera& cam)
 	if (cullWasOn) glCullFace(GL_BACK);
 }
 
+static void drawSkyboxBackground(const Camera& cam)
+{
+	if (skyboxCubeMeshID < 0) return;
+
+	renderer.activateRenderMeshesShaderProg();
+
+	// Render the inside faces
+	GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
+	if (cullWasOn) glCullFace(GL_FRONT);
+
+	// Draw only color, don’t touch depth (so it’s pure background)
+	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
+	if (!depthWasOn) glEnable(GL_DEPTH_TEST);
+
+	// write depth = 1.0 for all pixels (farthest possible)
+	glDepthFunc(GL_ALWAYS);
+	glDepthRange(1.0, 1.0);
+	glDepthMask(GL_TRUE);
+
+	mu.pushMatrix(gmu::MODEL);
+	mu.loadIdentity(gmu::MODEL);
+	mu.translate(gmu::MODEL, cam.pos[0], cam.pos[1], cam.pos[2]);
+
+	const float SKYBOX_SIZE = 500.0f;
+	mu.scale(gmu::MODEL, SKYBOX_SIZE, SKYBOX_SIZE, SKYBOX_SIZE);
+	mu.translate(gmu::MODEL, -0.5f, -0.5f, -0.5f);
+
+	mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+	mu.computeNormalMatrix3x3();
+
+	dataMesh d{};
+	d.meshID = skyboxCubeMeshID;
+	d.texMode = 10; // your cubemap mode
+	d.vm = mu.get(gmu::VIEW_MODEL);
+	d.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+	d.normal = mu.getNormalMatrix();
+	renderer.renderMesh(d);
+
+	mu.popMatrix(gmu::MODEL);
+
+	// Restore state
+	glDepthRange(0.0, 1.0);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	if (!depthWasOn) glDisable(GL_DEPTH_TEST);
+	if (cullWasOn)  glCullFace(GL_BACK);
+}
+
+
+template <typename DrawFn>
+static void drawAdditiveWithSkyboxSafeDepth(const DrawFn& drawGeometry) {
+	// 1) Depth pre-pass: write depth only
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+	glDisable(GL_BLEND);
+	glDepthFunc(GL_LESS);              // default
+
+	drawGeometry();                    // same transforms as the color pass
+
+	// 2) Color pass: additive, no depth writes, test == depth we just wrote
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_ONE, GL_ONE);       // your additive beam
+	glDepthMask(GL_FALSE);
+	glDepthFunc(GL_EQUAL);
+
+	drawGeometry();
+
+	// Restore conservative defaults
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+}
+
 static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	// ===== Program & global render state =====
 	renderer.activateRenderMeshesShaderProg();
@@ -1732,6 +1818,8 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		cam.target[0], cam.target[1], cam.target[2],
 		0, 1, 0);
 
+	drawSkyboxBackground(cam);
+
 	// =====================================================================
 	//                            REFLECTION PASS
 	// =====================================================================
@@ -1740,17 +1828,39 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	glEnable(GL_STENCIL_TEST);
 	glStencilMask(0xFF);
 	glStencilFunc(GL_ALWAYS, 1, 0xFF);
+	// Write ref=1 on ANY fragment (don’t depend on depth test)
 	glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
 
+	// Kill culling and depth for this marking pass.
+	// We’re just painting the floor shape into stencil.
 	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
-	glDisable(GL_DEPTH_TEST);
+	if (depthWasOn) glDisable(GL_DEPTH_TEST);
+	GLboolean cullWasOnMark = glIsEnabled(GL_CULL_FACE);
+	if (cullWasOnMark) glDisable(GL_CULL_FACE);
+
+	// No color writes.
 	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
-	drawFloor(14); // Just writes into stencil now
+	// Draw the floor in its real pose — just to write the silhouette into stencil.
+	drawFloor(14);
 
-	// restore color/depth writes
-	if (depthWasOn) glEnable(GL_DEPTH_TEST);
+	// Restore color & state
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	if (cullWasOnMark) glEnable(GL_CULL_FACE);
+	if (depthWasOn) glEnable(GL_DEPTH_TEST);
+
+	glStencilFunc(GL_EQUAL, 1, 0xFF);
+	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+	glDepthMask(GL_TRUE);
+
+	// If your driver/GPU clears whole buffer only, it’s fine to clear globally,
+	// but best is to scissor to your floor’s screen bounds if you have them.
+	// This is still safe:
+	glClear(GL_DEPTH_BUFFER_BIT);
+
+	// Keep stencil test active so the reflection only draws on the floor.
+	glStencilFunc(GL_EQUAL, 1, 0xFF);
+	glStencilMask(0x00);
 
 	// --- 2) Draw mirrored scene where stencil==1
 	glStencilMask(0x00);                 // don't modify stencil while drawing
@@ -1987,27 +2097,29 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		// BEAM (no label in reflection)
 		if (beamMeshID >= 0) {
 			const float* beamPos = (!package.beingCarried) ? package.pos : package.destPos;
-			float beamHeight = 25.0f, beamRadius = 3.0f;
+			float beamHeight = 14.0f, beamRadius = 3.0f;
+
+			// Same MODEL setup you already had — inside the lambda so both passes use the exact matrices.
+			auto drawBeamGeometry = [&]() {
+				dataMesh data{};
+				mu.pushMatrix(gmu::MODEL);
+				mu.translate(gmu::MODEL, beamPos[0], beamPos[1] + beamHeight * 0.5f, beamPos[2]);
+				mu.scale(gmu::MODEL, beamRadius, beamHeight, beamRadius);
+				mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+				mu.computeNormalMatrix3x3();
+
+				data.meshID = beamMeshID;
+				data.texMode = 0;
+				data.vm = mu.get(gmu::VIEW_MODEL);
+				data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+				data.normal = mu.getNormalMatrix();
+
+				renderer.renderMesh(data);
+				mu.popMatrix(gmu::MODEL);
+				};
 
 			renderer.activateRenderMeshesShaderProg();
-			glEnable(GL_BLEND); glBlendFunc(GL_ONE, GL_ONE);
-			glDepthMask(GL_FALSE); glEnable(GL_DEPTH_TEST);
-
-			dataMesh data{};
-			mu.pushMatrix(gmu::MODEL);
-			mu.translate(gmu::MODEL, beamPos[0], beamPos[1] + beamHeight * 0.5f, beamPos[2]);
-			mu.scale(gmu::MODEL, beamRadius, beamHeight, beamRadius);
-			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-			mu.computeNormalMatrix3x3();
-			data.meshID = beamMeshID; data.texMode = 0;
-			data.vm = mu.get(gmu::VIEW_MODEL);
-			data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
-			data.normal = mu.getNormalMatrix();
-			renderer.renderMesh(data);
-			mu.popMatrix(gmu::MODEL);
-
-			glDepthMask(GL_TRUE);
-			glDisable(GL_BLEND);
+			drawAdditiveWithSkyboxSafeDepth(drawBeamGeometry);
 		}
 	}
 	// ----------------------
@@ -2020,23 +2132,24 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	{
 		{
 			float saved[4]; memcpy(saved, renderer.myMeshes[0].mat.diffuse, sizeof(saved));
-			renderer.myMeshes[0].mat.diffuse[3] = 0.6f; // 40% see-through
+			renderer.myMeshes[0].mat.diffuse[3] = 0.7f; // controls strength of reflection
 
-			// Enable stencil constraint again — only draw where reflection exists
 			glEnable(GL_STENCIL_TEST);
-			glStencilFunc(GL_EQUAL, 1, 0xFF); // only where reflection was drawn
-			glStencilMask(0x00);              // don’t modify stencil buffer
+			glStencilFunc(GL_EQUAL, 1, 0xFF);
+			glStencilMask(0x00);
 
 			glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-			// Disable depth writes so the floor doesn’t occlude other objects later
-			
-
+			// *** IMPORTANT: floor must NOT write depth, or it will kill anything drawn afterwards
+			glDepthMask(GL_FALSE);
 			glDepthFunc(GL_LEQUAL);
-			drawFloor(14);
-			glDepthFunc(GL_LESS);
 
+			drawFloor(14);
+
+			// restore
+			glDepthFunc(GL_LESS);
+			glDepthMask(GL_TRUE);
 			glDisable(GL_BLEND);
 			glDisable(GL_STENCIL_TEST);
 
@@ -2374,51 +2487,44 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 
 		// BEAM + BILLBOARD LABEL (normal, *not* reflected)
 		if (beamMeshID >= 0) {
-			float beamHeight = 25.0f;
+			float beamHeight = 14.0f;
 			float beamRadius = 3.0f;
 			const float* beamPos = (!package.beingCarried) ? package.pos : package.destPos;
 
+			auto drawBeamGeometry = [&]() {
+				dataMesh data{};
+				mu.pushMatrix(gmu::MODEL);
+				mu.translate(gmu::MODEL, beamPos[0], beamPos[1] + beamHeight * 0.5f, beamPos[2]);
+				mu.scale(gmu::MODEL, beamRadius, beamHeight, beamRadius);
+				mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+				mu.computeNormalMatrix3x3();
+
+				data.meshID = beamMeshID;
+				data.texMode = 0;
+				data.vm = mu.get(gmu::VIEW_MODEL);
+				data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+				data.normal = mu.getNormalMatrix();
+
+				renderer.renderMesh(data);
+				mu.popMatrix(gmu::MODEL);
+				};
+
 			renderer.activateRenderMeshesShaderProg();
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_ONE, GL_ONE);
-			glDepthMask(GL_FALSE);
-			glEnable(GL_DEPTH_TEST);
+			drawAdditiveWithSkyboxSafeDepth(drawBeamGeometry);
 
-			dataMesh data{};
-			mu.pushMatrix(gmu::MODEL);
-			mu.translate(gmu::MODEL, beamPos[0], beamPos[1] + beamHeight * 0.5f, beamPos[2]);
-			mu.scale(gmu::MODEL, beamRadius, beamHeight, beamRadius);
-			mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
-			mu.computeNormalMatrix3x3();
-			data.meshID = beamMeshID; data.texMode = 0;
-			data.vm = mu.get(gmu::VIEW_MODEL);
-			data.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
-			data.normal = mu.getNormalMatrix();
-			renderer.renderMesh(data);
-			mu.popMatrix(gmu::MODEL);
-
-			glDepthMask(GL_TRUE);
-			glDisable(GL_BLEND);
-
-			// billboard label above beam
+			// Label stays the same
 			float labelPos[3] = { beamPos[0], beamPos[1] + beamHeight * 1.05f, beamPos[2] };
 			std::string label = (!package.beingCarried) ? "Pick up here" : "Deliver here";
 			renderBillboardLabelAt(labelPos, cam, label, nullptr, 0.02f);
 		}
 	}
 
+
+
 	// SMOKE (normal pass only)
 	renderSmokeParticles(cams[activeCam]);
 
-	glDepthFunc(GL_LEQUAL);
-	glDepthMask(GL_FALSE);
-	drawSkybox(cam);
-	glDepthMask(GL_TRUE);
-	glDepthFunc(GL_LESS);
-
-	//glDepthFunc(GL_LEQUAL); // allow skybox behind everything
-	//drawSkybox(cam);
-	//glDepthFunc(GL_LESS);
+	
 }
 
 static void drawHudMaskBorderCore(float cx, float cy, float sizePx) {
@@ -2716,14 +2822,23 @@ void renderSim(void) {
 		Camera top = cams[2];
 		top.type = 0; // perspective
 
-		// Look from above, but avoid forward // up colinearity by adding a tiny horizontal component
-		top.pos[0] = drone.pos[0];
-		top.pos[1] = drone.pos[1] + 40.0f;
-		top.pos[2] = drone.pos[2];
+		// Height above the drone
+		float topHeight = 40.0f;
 
-		top.target[0] = drone.pos[0];
-		top.target[1] = drone.pos[1] - 5.0f;   // slight tilt down instead of exactly at the drone Y
-		top.target[2] = drone.pos[2] + 0.01f;  // tiny Z offset to break colinearity with up=(0,1,0) 
+		// derive direction from drone’s yaw (dirAngle)
+		float yawRad = drone.dirAngle * 3.14159f / 180.0f;
+		float dx = sinf(yawRad);
+		float dz = cosf(yawRad);
+
+		// position camera above the drone, slightly offset backward (optional)
+		top.pos[0] = drone.pos[0] - dx * 5.0f;  // offset backward a little
+		top.pos[1] = drone.pos[1] + topHeight;
+		top.pos[2] = drone.pos[2] - dz * 5.0f;
+
+		// target slightly ahead of the drone, facing same yaw
+		top.target[0] = drone.pos[0] + dx * 10.0f;
+		top.target[1] = drone.pos[1];
+		top.target[2] = drone.pos[2] + dz * 10.0f;  // tiny Z offset to break colinearity with up=(0,1,0) 
 
 		glStencilFunc(GL_EQUAL, 1, 0xFF);
 
@@ -2877,6 +2992,7 @@ void keyboardDown(unsigned char key, int x, int y) {
 			resetDrone();
 			batteryLevel = 100.0f;
 			gameOver = false;
+			playerScore = 0;
 		}
 		break;
 
@@ -3263,12 +3379,22 @@ void buildScene()
 	camY = r * sin(beta * 3.14f / 180.0f);
 
 	// top-down perspective
-	cams[0].pos[0] = 0.0f;
-	cams[0].pos[1] = drone.pos[1] + 50.0f;     // high above
-	cams[0].pos[2] = drone.pos[2] + 0.01f;     // slight offset to avoid singularity
-	cams[0].target[0] = 0.0f;
-	cams[0].target[1] = 0.0f;
-	cams[0].target[2] = 0.0f;
+	float camDistance = 25.0f;  // how far behind the drone
+	float camHeight = 35.0f;   // how far above
+	float lookDownDeg = 25.0f;  // how much to tilt down (increase for steeper look)
+	float yawRad = drone.dirAngle * 3.14f / 180.0f;
+
+	// position camera behind and above the drone
+	cams[0].pos[0] = drone.pos[0] - sin(yawRad) * camDistance;
+	cams[0].pos[1] = drone.pos[1] + camHeight;
+	cams[0].pos[2] = drone.pos[2] - cos(yawRad) * camDistance;
+
+	// look slightly downward
+	float pitchRad = lookDownDeg * 3.14f / 180.0f;
+	cams[0].target[0] = drone.pos[0] + sin(yawRad) * 50.0f;
+	cams[0].target[1] = drone.pos[1] - tan(pitchRad) * 50.0f; // lower target to tilt down
+	cams[0].target[2] = drone.pos[2] + cos(yawRad) * 50.0f;
+
 	cams[0].type = 0;
 
 	// top-down orthographic
@@ -3324,9 +3450,9 @@ void buildScene()
 	{
 		MyMesh beam = createCylinder(1.0f, 0.3f, 16);
 		float amb[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-		float diff[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		float diff[] = { 0.3f, 2.8f, 0.5f, 1.0f };
 		float spec[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-		float emis[] = { 2.0f, 1.6f, 0.4f, 1.0f }; // bright yellowish
+		float emis[] = { 0.3f, 1.8f, 0.5f, 1.0f }; // bright yellowish
 		beam.mat.shininess = 1.0f;
 		beam.mat.texCount = 0;
 		memcpy(beam.mat.ambient, amb, 4 * sizeof(float));

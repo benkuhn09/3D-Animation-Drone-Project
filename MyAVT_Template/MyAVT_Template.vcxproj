@@ -162,31 +162,78 @@
     <ClCompile Include="basic_geometry.cpp" />
     <ClCompile Include="lightDemo.cpp" />
     <ClCompile Include="mathUtility.cpp" />
+    <ClCompile Include="meshFromAssimp.cpp" />
     <ClCompile Include="renderer.cpp" />
     <ClCompile Include="shader.cpp" />
     <ClCompile Include="texture.cpp" />
+    <ClCompile Include="Texture_Loader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\mesh.frag" />
     <None Include="shaders\mesh.vert" />
     <None Include="shaders\ttf.frag" />
     <None Include="shaders\ttf.vert" />
+    <None Include="spider\spider.mtl" />
+    <None Include="x64\Debug\MyAVT_Template.exe.recipe" />
+    <None Include="x64\Debug\vc143.idb" />
+    <None Include="x64\Debug\vc143.pdb" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cube.h" />
     <ClInclude Include="mathUtility.h" />
+    <ClInclude Include="meshFromAssimp.h" />
     <ClInclude Include="model.h" />
     <ClInclude Include="renderer.h" />
     <ClInclude Include="shader.h" />
     <ClInclude Include="stb_rect_pack.h" />
     <ClInclude Include="stb_truetype.h" />
     <ClInclude Include="texture.h" />
+    <ClInclude Include="Texture_Loader.h" />
+    <ClInclude Include="VertexAttrDef.h" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\..\..\concrete.jpg" />
+    <Image Include="assets\checker.png" />
     <Image Include="assets\cobblestone.png" />
     <Image Include="assets\concrete.jpg" />
+    <Image Include="assets\crcl.tga" />
+    <Image Include="assets\flar.tga" />
+    <Image Include="assets\graycloud_bk.jpg" />
+    <Image Include="assets\graycloud_dn.jpg" />
+    <Image Include="assets\graycloud_ft.jpg" />
+    <Image Include="assets\graycloud_lf.jpg" />
+    <Image Include="assets\graycloud_rt.jpg" />
+    <Image Include="assets\graycloud_up.jpg" />
+    <Image Include="assets\hxgn.tga" />
+    <Image Include="assets\lightwood.tga" />
+    <Image Include="assets\ring.tga" />
+    <Image Include="assets\skyscraper_glass.jpg" />
     <Image Include="assets\skyscraper_night.jpg" />
+    <Image Include="assets\skyscraper_plain.jpg" />
+    <Image Include="assets\skyscraper_residential.jpg" />
+    <Image Include="assets\smoke_particle.png" />
+    <Image Include="assets\stone.tga" />
+    <Image Include="assets\sun.tga" />
+    <Image Include="assets\test_normal.jpg" />
+    <Image Include="spider\drkwood2.jpg" />
+    <Image Include="spider\engineflare1.jpg" />
+    <Image Include="spider\SpiderTex.jpg" />
+    <Image Include="spider\wal67ar_small.jpg" />
+    <Image Include="spider\wal69ar_small.jpg" />
+  </ItemGroup>
+  <ItemGroup>
+    <Object Include="x64\Debug\basic_geometry.obj" />
+    <Object Include="x64\Debug\lightDemo.obj" />
+    <Object Include="x64\Debug\mathUtility.obj" />
+    <Object Include="x64\Debug\renderer.obj" />
+    <Object Include="x64\Debug\shader.obj" />
+    <Object Include="x64\Debug\texture.obj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="assets\flare.txt" />
+    <Text Include="x64\Debug\MyAVT_Template.Build.CppClean.log" />
+    <Text Include="x64\Debug\MyAVT_Template.log" />
+    <Text Include="x64\Debug\MyAVT_Template.vcxproj.FileListAbsolute.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
