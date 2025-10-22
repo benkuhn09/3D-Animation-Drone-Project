@@ -2163,6 +2163,9 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	//  (drawn AFTER the floor so they darken the reflection underneath)
 	// =====================================================================
 	{
+		glEnable(GL_STENCIL_TEST);
+		glStencilFunc(GL_EQUAL, 1, 0xFF);   // only draw where floor stencil == 1
+		glStencilMask(0x00);
 		// reuse your existing shadow block exactly, just placed here:
 		float S[16];
 		computeShadowMatrixOnFloor(S);
@@ -2305,6 +2308,9 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 				}
 			}
 		}
+
+		glDisable(GL_STENCIL_TEST);
+		glStencilMask(0xFF);
 
 		glDepthMask(GL_TRUE);
 		glDisable(GL_POLYGON_OFFSET_FILL);
