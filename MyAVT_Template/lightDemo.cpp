@@ -457,6 +457,59 @@ static void aiRecursive_render_AVT(const aiNode* nd) {
 	mu.popMatrix(gmu::MODEL);
 }
 
+static void aiRecursive_render_AVT_Shadow(const aiNode* nd, float alpha /*0..1*/) {
+	// Node transform (Assimp -> column-major)
+	aiMatrix4x4 m = nd->mTransformation;
+	m.Transpose();
+	float aux[16]; memcpy(aux, &m, sizeof(aux));
+
+	mu.pushMatrix(gmu::MODEL);
+	mu.multMatrix(gmu::MODEL, aux);
+
+	// Draw each mesh of this node
+	for (unsigned int n = 0; n < nd->mNumMeshes; ++n) {
+		const MyMesh& A = gAssimpMeshes[nd->mMeshes[n]];
+
+		// per-draw matrices
+		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+		mu.computeNormalMatrix3x3();
+
+		GLint prog = 0; glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+		glUniformMatrix4fv(glGetUniformLocation(prog, "m_pvm"), 1, GL_FALSE, mu.get(gmu::PROJ_VIEW_MODEL));
+		glUniformMatrix4fv(glGetUniformLocation(prog, "m_viewModel"), 1, GL_FALSE, mu.get(gmu::VIEW_MODEL));
+		glUniformMatrix3fv(glGetUniformLocation(prog, "m_normal"), 1, GL_FALSE, mu.getNormalMatrix());
+
+		// Flat black material with transparency
+		float blackA[4] = { 0.0f, 0.0f, 0.0f, alpha };
+		float zero4[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		GLint u;
+		if ((u = glGetUniformLocation(prog, "mat.ambient")) >= 0) glUniform4fv(u, 1, blackA);
+		if ((u = glGetUniformLocation(prog, "mat.diffuse")) >= 0) glUniform4fv(u, 1, blackA);
+		if ((u = glGetUniformLocation(prog, "mat.specular")) >= 0) glUniform4fv(u, 1, zero4);
+		if ((u = glGetUniformLocation(prog, "mat.emissive")) >= 0) glUniform4fv(u, 1, zero4);
+		if ((u = glGetUniformLocation(prog, "mat.shininess")) >= 0) glUniform1f(u, 1.0f);
+		if ((u = glGetUniformLocation(prog, "mat.texCount")) >= 0) glUniform1i(u, 0);
+
+		// Use the shader's flat-color branch (your shadows use texMode==9)
+		glUniform1i(glGetUniformLocation(prog, "texMode"), 9);
+
+		// Make sure no texture is sampled
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+
+		// Draw VAO
+		glBindVertexArray(A.vao);
+		glDrawElements(A.type, A.numIndexes, GL_UNSIGNED_INT, 0);
+		glBindVertexArray(0);
+	}
+
+	// Recurse children
+	for (unsigned c = 0; c < nd->mNumChildren; ++c)
+		aiRecursive_render_AVT_Shadow(nd->mChildren[c], alpha);
+
+	mu.popMatrix(gmu::MODEL);
+}
+
 static void drawImportedModel(const ImportedModel& M) {
 	if (!M.scene) return;
 
@@ -2238,6 +2291,27 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 					mu.popMatrix(gmu::MODEL);
 				}
 			}
+			mu.popMatrix(gmu::MODEL);
+		}
+
+		// Spider shadows
+		renderer.activateRenderMeshesShaderProg(); // make sure the mesh shader is bound
+		for (const auto& M : gImported) {
+			mu.pushMatrix(gmu::MODEL);
+
+			// Project to floor
+			mu.multMatrix(gmu::MODEL, S);
+
+			// Apply the same instance transform you use in drawImportedModel()
+			mu.translate(gmu::MODEL, M.pos[0], M.pos[1], M.pos[2]);
+			if (M.rot[0] != 0) mu.rotate(gmu::MODEL, M.rot[0], 1, 0, 0);
+			if (M.rot[1] != 0) mu.rotate(gmu::MODEL, M.rot[1], 0, 1, 0);
+			if (M.rot[2] != 0) mu.rotate(gmu::MODEL, M.rot[2], 0, 0, 1);
+			mu.scale(gmu::MODEL, M.scale * gScaleFactor, M.scale * gScaleFactor, M.scale * gScaleFactor);
+
+			// draw shadow (tweak alpha to taste)
+			aiRecursive_render_AVT_Shadow(M.scene->mRootNode, 0.45f);
+
 			mu.popMatrix(gmu::MODEL);
 		}
 
