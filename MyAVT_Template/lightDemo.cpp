@@ -1895,7 +1895,6 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	if (cullWasOnMark) glDisable(GL_CULL_FACE);
 	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
-	// Draw the floor in its real pose — just to write the silhouette into stencil.
 	drawFloor(14);
 
 	// Restore state
@@ -2053,6 +2052,15 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		// restore normal writes
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
+		float neutralFloor[4] = { 0.55f, 0.55f, 0.6f, 0.7f }; // adjust alpha to control reflection strength
+		memcpy(renderer.myMeshes[0].mat.diffuse, neutralFloor, sizeof(neutralFloor));
+
+		float neutralAmbient[4] = { 0.25f, 0.25f, 0.3f, 1.0f };
+		memcpy(renderer.myMeshes[0].mat.ambient, neutralAmbient, sizeof(neutralAmbient));
+
+		float neutralSpecular[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		memcpy(renderer.myMeshes[0].mat.specular, neutralSpecular, sizeof(neutralSpecular));
+		renderer.myMeshes[0].mat.shininess = 0.0f;
 		drawAllImportedModels();
 		
 
@@ -2184,8 +2192,22 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	// --- 3) Draw the floor semi-transparent over the reflection
 	{
 		{
-			float saved[4]; memcpy(saved, renderer.myMeshes[0].mat.diffuse, sizeof(saved));
-			renderer.myMeshes[0].mat.diffuse[3] = 0.7f; // controls strength of reflection
+			setLightsForPass(false);
+
+			// ✅ Ensure the fog matches the regular scene fog
+			if (fogEnabled) {
+				int depthFog = 1;
+				float fogColor[3] = { 0.5f, 0.5f, 0.6f };
+				float fogDensity = 0.04f;
+				renderer.setFogParams(depthFog, fogColor, fogDensity);
+			}
+
+			// ✅ Make sure the shader is correct for the mesh pass
+			renderer.activateRenderMeshesShaderProg();
+
+			float saved[4];
+			memcpy(saved, renderer.myMeshes[0].mat.diffuse, sizeof(saved));
+			renderer.myMeshes[0].mat.diffuse[3] = 0.7f;
 
 			glEnable(GL_STENCIL_TEST);
 			glStencilFunc(GL_EQUAL, 1, 0xFF);
@@ -2194,13 +2216,11 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-			// *** IMPORTANT: floor must NOT write depth, or it will kill anything drawn afterwards
 			glDepthMask(GL_FALSE);
 			glDepthFunc(GL_LEQUAL);
 
-			drawFloor(14);
+			drawFloor(14); //  uses correct non-reflected light setup
 
-			// restore
 			glDepthFunc(GL_LESS);
 			glDepthMask(GL_TRUE);
 			glDisable(GL_BLEND);
@@ -2529,6 +2549,15 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		// restore normal writes
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
+		float neutralFloor[4] = { 0.55f, 0.55f, 0.6f, 0.7f }; // adjust alpha to control reflection strength
+		memcpy(renderer.myMeshes[0].mat.diffuse, neutralFloor, sizeof(neutralFloor));
+
+		float neutralAmbient[4] = { 0.25f, 0.25f, 0.3f, 1.0f };
+		memcpy(renderer.myMeshes[0].mat.ambient, neutralAmbient, sizeof(neutralAmbient));
+
+		float neutralSpecular[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		memcpy(renderer.myMeshes[0].mat.specular, neutralSpecular, sizeof(neutralSpecular));
+		renderer.myMeshes[0].mat.shininess = 0.0f;
 		drawAllImportedModels();
 
 		// PACKAGE
