@@ -34,6 +34,13 @@
 #include "texture.h"
 #include "flare.h" 
 
+
+#include "meshFromAssimp.h"     // declares Import3DFromFile, createMeshFromAssimp, extern model_dir
+#include "Texture_Loader.h"     
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 using namespace std;
 
 #define CAPTION "AVT 2025 Welcome Demo"
@@ -50,6 +57,16 @@ gmu mu;
 
 //Object of class renderer to manage the rendering of meshes and ttf-based bitmap text
 Renderer renderer;
+
+Assimp::Importer gImporter;          // keep alive while using gScene (demo recommends it)
+const aiScene* gScene = nullptr;   // Assimp scene
+float            gScaleFactor = 1.f; // normalizes model size (longest side = 1), from Import3DFromFile
+char             model_dir[50] = ""; // required by meshFromAssimp.* to prefix texture paths
+
+// Meshes + texture objects created by the template helpers
+std::vector<MyMesh> gAssimpMeshes;   // VAOs + material + texture-unit list (TUs)
+GLuint* gTextureIds = nullptr; // array of GL textures (indexed by TU)
+
 
 // Camera Position
 float camX, camY, camZ;
@@ -77,6 +94,16 @@ float aspectRatio = 1.0f;
 bool debugDrawFlyingAABB = false;  // toggle with 'b'
 int  debugFlyIndex = 0;           // select which flying object, [0..NUM_FLYING_OBJECTS-1]
 int  wireCubeMeshID = -1;         // green wire cube used for drawing AABBs
+
+
+struct ImportedModel {
+	const aiScene* scene;
+	float pos[3];
+	float rot[3];   // degrees, XYZ
+	float scale;
+	bool  doubleSided; // disable culling for meshes with bad winding
+};
+std::vector<ImportedModel> gImported;
 
 struct Mat4 {
 	float m[16]; // column-major
@@ -346,6 +373,9 @@ static inline void normalize3(float v[3]) {
 	if (L > 0.0f) { v[0] /= L; v[1] /= L; v[2] /= L; }
 }
 
+
+
+
 static GLuint gSkyboxTex = 0;         // GL cubemap
 static int    skyboxCubeMeshID = -1;
 
@@ -360,6 +390,95 @@ GLuint FlareTextureArray[NTEXTURES] = { 0 };  // crcl, flar, hxgn, ring, sun
 float sunAzimuthDeg = -30.0f;  // around Y (0 = +Z)
 float sunElevationDeg = 30;   // 0=horizon, 90=zenith
 float sunDistance = 90.0f;  // how far from scene center
+
+static void aiRecursive_render_AVT(const aiNode* nd) {
+	// 4.1 Apply node transform (demo uses column-major; transpose from Assimp)
+	aiMatrix4x4 m = nd->mTransformation;
+	m.Transpose();
+	float aux[16]; memcpy(aux, &m, sizeof(aux));
+
+	mu.pushMatrix(gmu::MODEL);
+	mu.multMatrix(gmu::MODEL, aux);
+
+	// 4.2 Draw all meshes referenced by this node
+	for (unsigned int n = 0; n < nd->mNumMeshes; ++n) {
+		const MyMesh& A = gAssimpMeshes[nd->mMeshes[n]];
+
+		// Pick the FIRST diffuse TU (demo supports up to 2; our shader uses one sampler)
+		int diffuseTU = -1;
+		for (unsigned i = 0; i < A.mat.texCount; ++i) {
+			if (A.texTypes[i] == DIFFUSE) { diffuseTU = (int)A.texUnits[i]; break; }
+		}
+
+		// 4.2.1 Per-draw matrices (match your renderer uniform names)
+		mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+		mu.computeNormalMatrix3x3();
+
+		// Your mesh program is already active when we call this (see step 5)
+		GLint prog = 0; glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+		glUniformMatrix4fv(glGetUniformLocation(prog, "m_pvm"), 1, GL_FALSE, mu.get(gmu::PROJ_VIEW_MODEL));
+		glUniformMatrix4fv(glGetUniformLocation(prog, "m_viewModel"), 1, GL_FALSE, mu.get(gmu::VIEW_MODEL));
+		glUniformMatrix3fv(glGetUniformLocation(prog, "m_normal"), 1, GL_FALSE, mu.getNormalMatrix());
+
+		// 4.2.2 Material uniforms (demo names; harmless if extra)
+		GLint u;
+		if ((u = glGetUniformLocation(prog, "mat.ambient")) >= 0) glUniform4fv(u, 1, A.mat.ambient);
+		if ((u = glGetUniformLocation(prog, "mat.diffuse")) >= 0) glUniform4fv(u, 1, A.mat.diffuse);
+		if ((u = glGetUniformLocation(prog, "mat.specular")) >= 0) glUniform4fv(u, 1, A.mat.specular);
+		if ((u = glGetUniformLocation(prog, "mat.emissive")) >= 0) glUniform4fv(u, 1, A.mat.emissive);
+		if ((u = glGetUniformLocation(prog, "mat.shininess")) >= 0) glUniform1f(u, A.mat.shininess);
+		if ((u = glGetUniformLocation(prog, "mat.texCount")) >= 0) glUniform1i(u, (GLint)A.mat.texCount);
+
+		// 4.2.3 Bind ONE diffuse to your shader path: texMode==1 uses sampler 'texmap2'
+		glUniform1i(glGetUniformLocation(prog, "texMode"), 1);
+		// IMPORTANT: we pass the actual TU index the demo assigned
+		glUniform1i(glGetUniformLocation(prog, "texmap2"), diffuseTU >= 0 ? diffuseTU : 0);
+
+		// Activate that TU and bind the real GL texture object from the demo’s array
+		if (diffuseTU >= 0) {
+			glActiveTexture(GL_TEXTURE0 + diffuseTU);
+			glBindTexture(GL_TEXTURE_2D, gTextureIds[diffuseTU]);
+		}
+		else {
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, 0);
+		}
+
+		// 4.2.4 Draw the VAO (exactly like the demo)
+		glBindVertexArray(A.vao);
+		glDrawElements(A.type, A.numIndexes, GL_UNSIGNED_INT, 0);
+		glBindVertexArray(0);
+	}
+
+	// 4.3 Recurse
+	for (unsigned c = 0; c < nd->mNumChildren; ++c) aiRecursive_render_AVT(nd->mChildren[c]);
+	mu.popMatrix(gmu::MODEL);
+}
+
+static void drawImportedModel(const ImportedModel& M) {
+	if (!M.scene) return;
+
+	GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
+	if (M.doubleSided && cullWasOn) glDisable(GL_CULL_FACE);
+
+	mu.pushMatrix(gmu::MODEL);
+	mu.translate(gmu::MODEL, M.pos[0], M.pos[1], M.pos[2]);
+	if (M.rot[0] != 0) mu.rotate(gmu::MODEL, M.rot[0], 1, 0, 0);
+	if (M.rot[1] != 0) mu.rotate(gmu::MODEL, M.rot[1], 0, 1, 0);
+	if (M.rot[2] != 0) mu.rotate(gmu::MODEL, M.rot[2], 0, 0, 1);
+	mu.scale(gmu::MODEL, M.scale * gScaleFactor, M.scale * gScaleFactor, M.scale * gScaleFactor);
+
+	aiRecursive_render_AVT(M.scene->mRootNode);
+
+	mu.popMatrix(gmu::MODEL);
+
+	if (M.doubleSided && cullWasOn) glEnable(GL_CULL_FACE);
+}
+
+static void drawAllImportedModels() {
+	// Make sure we’re not in a color-masked prepass when calling this.
+	for (const auto& m : gImported) drawImportedModel(m);
+}
 
 static void setSunFromAngles(float azDeg, float elDeg) {
 	const float PI = 3.1415926f;
@@ -1864,6 +1983,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			mu.popMatrix(gmu::MODEL);
 		}
 
+
 		// BEAM (no label in reflection)
 		if (beamMeshID >= 0) {
 			const float* beamPos = (!package.beingCarried) ? package.pos : package.destPos;
@@ -2079,6 +2199,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			}
 		}
 
+		drawAllImportedModels();
 		// TRANSPARENT (GLASS) BUILDINGS
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -2164,6 +2285,8 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 
 		// restore normal writes
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+		drawAllImportedModels();
 
 		// PACKAGE
 		if (package.active && packageMeshID >= 0) {
@@ -3240,6 +3363,42 @@ void buildScene()
 	loadFlareFile(&gFlare, (FILE*)nullptr ? (char*)"assets/flare.txt" : (char*)"flare.txt");
 	// Create the initial list
 	initFlyingObjects();
+
+	{
+		// 3.1 DevIL init (only once; safe to call here)
+		if (ilGetInteger(IL_VERSION_NUM) < IL_VERSION) { printf("Wrong DevIL version\n"); exit(0); }
+		ilInit();
+
+		// 3.2 Ask the folder name like the demo does
+		std::string name; std::cout << "Input the directory name containing the OBJ file: ";
+		std::cin >> name;
+
+		// Build OBJ path "folder/folder.obj" and set model_dir="folder/"
+		std::string filepath = name + "/" + name + ".obj";
+		snprintf(model_dir, sizeof(model_dir), "%s/", name.c_str());   // used by meshFromAssimp.* to find textures
+
+		// (Optional) file existence check like the demo
+		// std::ifstream fin(filepath.c_str());
+		// if (fin.fail()) { printf("Couldn't open file: %s\n", filepath.c_str()); }
+		// else fin.close();
+
+		// 3.3 Assimp import (exactly like main.cpp)
+		if (Import3DFromFile(filepath, gImporter, gScene, gScaleFactor)) {
+			gAssimpMeshes = createMeshFromAssimp(gScene, gTextureIds);
+
+			// Add one instance (you can push_back more with different transforms)
+			ImportedModel m{};
+			m.scene = gScene;
+			m.pos[0] = 0.0f; m.pos[1] = 1.0f; m.pos[2] = -20.0f;
+			m.rot[0] = 0.0f; m.rot[1] = 0.0f; m.rot[2] = 0.0f;
+			m.scale = 8.0f;           // try 6–12; 8 is a good city scale
+			m.doubleSided = true;     // avoids missing faces if OBJ has flipped winding
+			gImported.push_back(m);
+		}
+		else {
+			std::cerr << "Assimp import failed. Model will be skipped.\n";
+		}
+	}
 }
 
 // ------------------------------------------------------------
