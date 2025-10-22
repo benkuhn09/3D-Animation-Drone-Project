@@ -1824,43 +1824,35 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	//                            REFLECTION PASS
 	// =====================================================================
 
-	// --- 1) Stencil mark the floor polygon (write 1 where the floor is)
+	// --- 1) Setup stencil to isolate floor reflection region ---
 	glEnable(GL_STENCIL_TEST);
+	glClearStencil(0);
+	glClear(GL_STENCIL_BUFFER_BIT);
+
+	// Mark floor area into stencil = 1
 	glStencilMask(0xFF);
 	glStencilFunc(GL_ALWAYS, 1, 0xFF);
-	// Write ref=1 on ANY fragment (don’t depend on depth test)
-	glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
+	glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 
-	// Kill culling and depth for this marking pass.
-	// We’re just painting the floor shape into stencil.
+	// Disable color/depth/cull temporarily just to mark the floor shape
 	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
 	if (depthWasOn) glDisable(GL_DEPTH_TEST);
 	GLboolean cullWasOnMark = glIsEnabled(GL_CULL_FACE);
 	if (cullWasOnMark) glDisable(GL_CULL_FACE);
-
-	// No color writes.
 	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
-	// Draw the floor in its real pose — just to write the silhouette into stencil.
+	// Draw the floor — this only writes to stencil, not color/depth
 	drawFloor(14);
 
-	// Restore color & state
+	// Restore state
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-	if (cullWasOnMark) glEnable(GL_CULL_FACE);
 	if (depthWasOn) glEnable(GL_DEPTH_TEST);
+	if (cullWasOnMark) glEnable(GL_CULL_FACE);
 
-	glStencilFunc(GL_EQUAL, 1, 0xFF);
-	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-	glDepthMask(GL_TRUE);
-
-	// If your driver/GPU clears whole buffer only, it’s fine to clear globally,
-	// but best is to scissor to your floor’s screen bounds if you have them.
-	// This is still safe:
-	glClear(GL_DEPTH_BUFFER_BIT);
-
-	// Keep stencil test active so the reflection only draws on the floor.
+	// Step 2 — clear depth so reflection starts clean
 	glStencilFunc(GL_EQUAL, 1, 0xFF);
 	glStencilMask(0x00);
+	glClear(GL_DEPTH_BUFFER_BIT);
 
 	// --- 2) Draw mirrored scene where stencil==1
 	glStencilMask(0x00);                 // don't modify stencil while drawing
@@ -2128,6 +2120,11 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	mu.popMatrix(gmu::MODEL);      // pop (1,-1,1)
 	if (cullWasOn) glEnable(GL_CULL_FACE);
 
+	
+	glEnable(GL_STENCIL_TEST);
+	glStencilFunc(GL_EQUAL, 1, 0xFF);
+	glStencilMask(0x00);
+	glClear(GL_DEPTH_BUFFER_BIT);
 	// --- 3) Draw the floor semi-transparent over the reflection
 	{
 		{
@@ -2257,6 +2254,56 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			sd.normal = mu.getNormalMatrix();
 			renderer.renderMesh(sd);
 			mu.popMatrix(gmu::MODEL);
+		}
+
+		// --- BUILDING SHADOWS ---
+		{
+			const float spacing = 7.2f;
+			const float floorSize = 65.0f;
+			const float xOffset = -floorSize / 2.0f + spacing / 2.0f;
+			const float zOffset = -floorSize / 2.0f + spacing / 2.0f;
+
+			dataMesh sd{};
+			sd.texMode = 9; // flat shadow material
+
+			for (int i = 0; i < GRID_SIZE; ++i) {
+				for (int j = 0; j < GRID_SIZE; ++j) {
+					int mID = city[i][j].meshID;
+					if (mID < 0) continue;
+
+					// Skip glass if you want softer shadows (optional)
+					bool isGlass = (mID == glassCubeMeshID || mID == glassCylMeshID);
+					float shadowAlpha = isGlass ? 0.25f : 0.4f;
+
+					ShadowMatGuard matGuard(&renderer.myMeshes[mID], shadowAlpha);
+
+					mu.pushMatrix(gmu::MODEL);
+					mu.multMatrix(gmu::MODEL, S);
+					mu.translate(gmu::MODEL,
+						xOffset + (float)i * spacing + buildingOffset[i][j][0],
+						0.0f + buildingOffset[i][j][1],
+						zOffset + (float)j * spacing + buildingOffset[i][j][2]);
+
+					float height = city[i][j].height;
+					if (mID == 3) {
+						mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
+						mu.translate(gmu::MODEL, 0.0f, 0.75f, 0.0f);
+					}
+					else {
+						mu.scale(gmu::MODEL, 2.3f, height, 2.3f);
+					}
+
+					mu.computeDerivedMatrix(gmu::PROJ_VIEW_MODEL);
+					mu.computeNormalMatrix3x3();
+					sd.meshID = mID;
+					sd.vm = mu.get(gmu::VIEW_MODEL);
+					sd.pvm = mu.get(gmu::PROJ_VIEW_MODEL);
+					sd.normal = mu.getNormalMatrix();
+					renderer.renderMesh(sd);
+
+					mu.popMatrix(gmu::MODEL);
+				}
+			}
 		}
 
 		glDepthMask(GL_TRUE);

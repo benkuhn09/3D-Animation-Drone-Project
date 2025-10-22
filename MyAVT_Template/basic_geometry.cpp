@@ -38,13 +38,13 @@ MyMesh createQuad(float size_x, float size_y) {
 	// --- NEW: compute tangents ---
 	float tangent[16];  // 4 vertices × 4 floats
 	ComputeTangentArray(
-		4,                   // vertex count
-		vert,                // vertex positions
-		quad_normals,        // normals
-		quad_texCoords,      // texcoords
-		amesh.numIndexes,    // index count
-		quad_faceIndex,      // indices
-		tangent              // output tangent array
+		4,                  // vertex count
+		quad_vertices,      // vertex positions
+		quad_normals,       // vertex normals
+		quad_texCoords,     // UVs
+		6,                  // number of indices (2 triangles × 3)
+		quad_faceIndex,     // index array (triangle list)
+		tangent             // output tangents
 	);
 
 	// --- Now upload all 4 arrays (pos, norm, uv, tangent) ---

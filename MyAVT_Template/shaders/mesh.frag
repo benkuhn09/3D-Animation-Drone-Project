@@ -82,8 +82,9 @@ void main() {
     vec3 n;
     if (texMode == 14) {
         vec3 n_ts = normalize(2.0 * texture(texmap10, DataIn.tex_coord).rgb - 1.0);
-        n_ts.y = -n_ts.y;
         n = normalize(mat3(DataIn.T, DataIn.B, DataIn.N) * n_ts);
+        // UNCOMMENT BELOW TO VERIFY NORMAL MAPPING
+        //colorOut = vec4(0.5 * (n + 1.0), 1.0); return;
     } else {
         n = normalize(DataIn.normal);
     }
