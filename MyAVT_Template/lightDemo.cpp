@@ -5,7 +5,7 @@
 // Normal Map texture from Hons.Elle at https://gamebanana.com/models/4652
 // Skybox textures from Spiny at https://opengameart.org/content/cloudy-skyboxes
 // 
-// Authors: Benjamin Raymond Kuhn, Gabriel Picado Bispo, Zoé Danielle Colette Hombourger (117219)
+// Authors: Benjamin Raymond Kuhn, Gabriel Picado Bispo, Zoé Danielle Colette Hombourger
 //
 
 #include <math.h>
