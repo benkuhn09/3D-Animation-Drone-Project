@@ -33,6 +33,12 @@
     <ClCompile Include="renderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="meshFromAssimp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Texture_Loader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\ttf.frag">
@@ -47,6 +53,10 @@
     <None Include="shaders\mesh.frag">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="x64\Debug\MyAVT_Template.exe.recipe" />
+    <None Include="x64\Debug\vc143.idb" />
+    <None Include="x64\Debug\vc143.pdb" />
+    <None Include="spider\spider.mtl" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cube.h">
@@ -73,6 +83,15 @@
     <ClInclude Include="renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="meshFromAssimp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Texture_Loader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="VertexAttrDef.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\..\..\concrete.jpg">
@@ -87,5 +106,77 @@
     <Image Include="assets\skyscraper_night.jpg">
       <Filter>Resource Files</Filter>
     </Image>
+    <Image Include="spider\drkwood2.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="spider\engineflare1.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="spider\SpiderTex.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="spider\wal67ar_small.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="spider\wal69ar_small.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\checker.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\crcl.tga" />
+    <Image Include="assets\flar.tga" />
+    <Image Include="assets\graycloud_bk.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\graycloud_dn.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\graycloud_ft.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\graycloud_lf.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\graycloud_rt.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\graycloud_up.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\hxgn.tga" />
+    <Image Include="assets\lightwood.tga" />
+    <Image Include="assets\ring.tga" />
+    <Image Include="assets\skyscraper_glass.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\skyscraper_plain.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\skyscraper_residential.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\smoke_particle.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="assets\stone.tga" />
+    <Image Include="assets\sun.tga" />
+    <Image Include="assets\test_normal.jpg">
+      <Filter>Resource Files</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <Object Include="x64\Debug\basic_geometry.obj" />
+    <Object Include="x64\Debug\lightDemo.obj" />
+    <Object Include="x64\Debug\mathUtility.obj" />
+    <Object Include="x64\Debug\renderer.obj" />
+    <Object Include="x64\Debug\shader.obj" />
+    <Object Include="x64\Debug\texture.obj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="x64\Debug\MyAVT_Template.Build.CppClean.log" />
+    <Text Include="x64\Debug\MyAVT_Template.log" />
+    <Text Include="x64\Debug\MyAVT_Template.vcxproj.FileListAbsolute.txt" />
+    <Text Include="assets\flare.txt" />
   </ItemGroup>
 </Project>

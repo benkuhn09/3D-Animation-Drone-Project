@@ -259,11 +259,18 @@ void main() {
         baseColor = vec4(rgb, mat.diffuse.a);
     }
     else if (texMode == 14) {
-        // Normal map applied through 'n' already
+        // Apply bump-mapped lighting as before
         vec4 tA = texture(texmap3, DataIn.tex_coord);
         vec4 tB = texture(texmap4, DataIn.tex_coord);
-        baseColor = vec4(lighting * (tA.rgb * tB.rgb), 1.0);
-        alpha = tA.a;
+        vec3 rgb = lighting * (tA.rgb * tB.rgb);
+
+        // Combine texture alpha (tA.a) with material alpha from CPU
+        float aTex = tA.a;
+        float aMat = mat.diffuse.a;  // set on CPU, e.g., 0.6f for the floor
+        float aOut = aTex * aMat;
+
+        baseColor = vec4(rgb, aOut);
+        alpha = aOut;
     }
     else {
         texel = texture(texmap9, DataIn.tex_coord);

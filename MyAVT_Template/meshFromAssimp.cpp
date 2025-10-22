@@ -35,7 +35,7 @@ Functions to handle with struct MyMesh based meshes from Assimp meshes:
 #include "VertexAttrDef.h"
 #include "model.h"
 #include "Texture_Loader.h"
-
+//#include "meshFromAssimp.h"
 
 using namespace std;
 
