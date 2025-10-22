@@ -494,14 +494,9 @@ void Renderer::renderHUD(float batteryLevel, int score, int windowWidth, int win
         glBindVertexArray(0);
         };
 
-    // ============================================
-    //        POSITION DU HUD (fixe en haut)
-    // ============================================
-
-    float marginTop = 40.0f;   // distance depuis le haut de la fenêtre
+    float marginTop = 40.0f;
     float baselineY = windowHeight - marginTop;
 
-    // --- Score (coin supérieur droit) ---
     TextCommand txt;
     txt.pvm = hudPVM;
     txt.size = 0.5f;
@@ -514,15 +509,13 @@ void Renderer::renderHUD(float batteryLevel, int score, int windowWidth, int win
     txt.str = "Score: " + std::to_string(score);
     renderText(txt);
 
-    // --- Batterie (gauche) ---
+
     txt.align_x = Align::Left;
     txt.position[0] = 40.0f;
     txt.position[1] = baselineY + 680.0f;
     txt.str = "Battery";
     renderText(txt);
 
-
-    // --- Barre de batterie (entre les deux textes) ---
     float laneLeft = 190.0f;
     float laneRight = 420.0f;
     float barY = baselineY - 20.0f;
@@ -541,7 +534,6 @@ void Renderer::renderHUD(float batteryLevel, int score, int windowWidth, int win
     drawRect(laneLeft, barY, barW, barH, 0.3f, 0.3f, 0.3f, 1.0f);
     drawRect(laneLeft, barY, fillW, barH, r, g, b, 1.0f);
 
-    // --- Pourcentage ---
     txt.position[0] = 450.0f;
     txt.color[0] = r;
     txt.color[1] = g;

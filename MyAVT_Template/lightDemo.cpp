@@ -1,4 +1,4 @@
-//
+Ôªø//
 // AVT 2025: Texturing with Phong Shading and Text rendered with TrueType library
 // The text rendering was based on https://dev.to/shreyaspranav/how-to-render-truetype-fonts-in-opengl-using-stbtruetypeh-1p5k
 // You can also learn an alternative with FreeType text: https://learnopengl.com/In-Practice/Text-Rendering
@@ -9,7 +9,7 @@
 // The code comes with no warranties, use it at your own risk.
 // You may use it, or parts of it, wherever you want.
 // 
-// Author: Jo„o Madeiras Pereira
+// Author: Jo√£o Madeiras Pereira
 //
 
 #include <math.h>
@@ -238,9 +238,9 @@ float rearMaskMarginPx = 20.0f;  // margin from the window edges
 
 struct Drone {
 	float pos[3] = { -30.0f, 15.0f, 0.0f }; // world position (x,y,z)
-	float dirAngle = 90.0f;   // yaw (degrees) ó heading in the XZ plane
-	float pitch = 0.0f;   // nose up/down (degrees) ó used to influence forward motion
-	float roll = 0.0f;   // roll (degrees) ó optional for visuals
+	float dirAngle = 90.0f;   // yaw (degrees) ‚Äî heading in the XZ plane
+	float pitch = 0.0f;   // nose up/down (degrees) ‚Äî used to influence forward motion
+	float roll = 0.0f;   // roll (degrees) ‚Äî optional for visuals
 	float speed = 0.0f;   // horizontal speed scalar (units/sec)
 	float vSpeed = 0.0f;   // vertical speed (units/sec, positive = up)
 
@@ -312,7 +312,7 @@ const float MAX_PITCH = 30.0f;   // how far the nose can tilt up/down
 const float MAX_ROLL = 35.0f;   // how far it can bank left/right
 const float ANG_INPUT_ACCEL = 160.0f;  // deg/s^2 injected while a key is held
 const float ANG_DAMP = 2.5f;    // 1/s   (angular friction)
-const float ANG_SPRING = 4.0f;    // 1/s^2 (auto-level pull to 0∞)
+const float ANG_SPRING = 4.0f;    // 1/s^2 (auto-level pull to 0¬∞)
 
 struct Building {
 	float height;
@@ -436,7 +436,7 @@ static void aiRecursive_render_AVT(const aiNode* nd) {
 		// IMPORTANT: we pass the actual TU index the demo assigned
 		glUniform1i(glGetUniformLocation(prog, "texmap2"), diffuseTU >= 0 ? diffuseTU : 0);
 
-		// Activate that TU and bind the real GL texture object from the demoís array
+		// Activate that TU and bind the real GL texture object from the demo‚Äôs array
 		if (diffuseTU >= 0) {
 			glActiveTexture(GL_TEXTURE0 + diffuseTU);
 			glBindTexture(GL_TEXTURE_2D, gTextureIds[diffuseTU]);
@@ -478,7 +478,7 @@ static void drawImportedModel(const ImportedModel& M) {
 }
 
 static void drawAllImportedModels() {
-	// Make sure weíre not in a color-masked prepass when calling this.
+	// Make sure we‚Äôre not in a color-masked prepass when calling this.
 	for (const auto& m : gImported) drawImportedModel(m);
 }
 
@@ -506,7 +506,7 @@ static void setSunFromAngles(float azDeg, float elDeg) {
 	pointLightPos[0][2] = -dir[2] * sunDistance;
 	pointLightPos[0][3] = 1.0f;
 
-	// brighten it a bit since itís far away (your shader supports >1.0 intensities)
+	// brighten it a bit since it‚Äôs far away (your shader supports >1.0 intensities)
 	pointLightColor[0][0] = pointLightColor[0][1] = pointLightColor[0][2] = 3.0f;
 }
 
@@ -582,7 +582,7 @@ void spawnFlyingObject(FlyingObject& o) {
 
 
 	o.rotAxis = (int)frand(0.0f, 3.0f);          // 0,1,or 2
-	o.rotSpeed = frand(45.0f, 180.0f);            // 45ñ180 deg/s
+	o.rotSpeed = frand(45.0f, 180.0f);            // 45‚Äì180 deg/s
 	o.rotAngle = frand(0.0f, 360.0f);
 	// vary the speed
 	o.speed = BASE_SPEED * frand(0.5f, 1.5f);
@@ -763,7 +763,7 @@ void initCity() {
 
 	for (int i = 0; i < GRID_SIZE; ++i) {
 		for (int j = 0; j < GRID_SIZE; ++j) {
-			float t = rand() / (float)RAND_MAX;  // random float 0ñ1
+			float t = rand() / (float)RAND_MAX;  // random float 0‚Äì1
 			city[i][j].height = minHeight + t * (maxHeight - minHeight);
 			city[i][j].meshID = (rand() % 2 == 0) ? 1 : 3;  // cube or cylinder
 			city[i][j].texMode = 2 + (rand() % 4);
@@ -886,7 +886,7 @@ void computeDroneAABB(const Drone& drone, float outMin[3], float outMax[3]) {
 	mu.pushMatrix(gmu::MODEL);
 	mu.loadIdentity(gmu::MODEL);
 
-	// base drone transform (translate + yaw + pitch + roll) ó same order as render
+	// base drone transform (translate + yaw + pitch + roll) ‚Äî same order as render
 	mu.translate(gmu::MODEL, drone.pos[0], drone.pos[1], drone.pos[2]);
 	mu.rotate(gmu::MODEL, drone.dirAngle, 0.0f, 1.0f, 0.0f); // yaw
 	mu.rotate(gmu::MODEL, drone.pitch, 1.0f, 0.0f, 0.0f); // pitch
@@ -1109,7 +1109,7 @@ void updateDrone(float deltaTime) {
 				else if (d2Arr[i] < d2Arr[second]) { second = i; }
 			}
 
-			// convert to actual distances for a nicer ìtieî test
+			// convert to actual distances for a nicer ‚Äútie‚Äù test
 			float d1 = sqrtf(d2Arr[best]);
 			float d2 = sqrtf(d2Arr[second]);
 
@@ -1281,7 +1281,7 @@ void animate(float deltaTime) {
 	if (drone.roll > MAX_ROLL) { drone.roll = MAX_ROLL;  if (drone.rollVel > 0) drone.rollVel = 0; }
 	if (drone.roll < -MAX_ROLL) { drone.roll = -MAX_ROLL;  if (drone.rollVel < 0) drone.rollVel = 0; }
 
-	// Mild linear speed damping so forward motion ìglidesî a bit
+	// Mild linear speed damping so forward motion ‚Äúglides‚Äù a bit
 	drone.vSpeed *= 0.98f;
 	drone.speed *= 0.995f;
 
@@ -1313,6 +1313,7 @@ void drawText2D(const std::string& msg, int x, int y, float scale,
 	cmd.str = msg;
 	cmd.position[0] = (float)x;
 	cmd.position[1] = (float)y;
+	cmd.align_x = Align::Left;
 	cmd.size = scale;
 	cmd.color[0] = r;
 	cmd.color[1] = g;
@@ -1480,7 +1481,7 @@ static inline void computeShadowMatrixOnFloor(float S[16]) {
 	if (directionalLightOn) {
 		// Use the *direction* of the light, not its position.
 		float lightDir[4] = {
-			-directionalLightPos[0],  // negate ó shadow projects opposite light direction
+			-directionalLightPos[0],  // negate ‚Äî shadow projects opposite light direction
 			-directionalLightPos[1],
 			-directionalLightPos[2],
 			 0.0f                     // w = 0 ? directional light (at infinity)
@@ -1677,7 +1678,7 @@ static void drawSkybox(const Camera& cam)
 	if (cullWasOn) glCullFace(GL_FRONT);
 
 	// DO NOT disable depth test here.
-	// We only disable depth WRITES so skybox doesnít affect depth.
+	// We only disable depth WRITES so skybox doesn‚Äôt affect depth.
 	glDepthMask(GL_FALSE);
 
 	mu.pushMatrix(gmu::MODEL);
@@ -1716,7 +1717,7 @@ static void drawSkyboxBackground(const Camera& cam)
 	GLboolean cullWasOn = glIsEnabled(GL_CULL_FACE);
 	if (cullWasOn) glCullFace(GL_FRONT);
 
-	// Draw only color, donít touch depth (so itís pure background)
+	// Draw only color, don‚Äôt touch depth (so it‚Äôs pure background)
 	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
 	if (!depthWasOn) glEnable(GL_DEPTH_TEST);
 
@@ -1828,11 +1829,11 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	glEnable(GL_STENCIL_TEST);
 	glStencilMask(0xFF);
 	glStencilFunc(GL_ALWAYS, 1, 0xFF);
-	// Write ref=1 on ANY fragment (donít depend on depth test)
+	// Write ref=1 on ANY fragment (don‚Äôt depend on depth test)
 	glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
 
 	// Kill culling and depth for this marking pass.
-	// Weíre just painting the floor shape into stencil.
+	// We‚Äôre just painting the floor shape into stencil.
 	GLboolean depthWasOn = glIsEnabled(GL_DEPTH_TEST);
 	if (depthWasOn) glDisable(GL_DEPTH_TEST);
 	GLboolean cullWasOnMark = glIsEnabled(GL_CULL_FACE);
@@ -1841,7 +1842,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	// No color writes.
 	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
-	// Draw the floor in its real pose ó just to write the silhouette into stencil.
+	// Draw the floor in its real pose ‚Äî just to write the silhouette into stencil.
 	drawFloor(14);
 
 	// Restore color & state
@@ -1853,8 +1854,8 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 	glDepthMask(GL_TRUE);
 
-	// If your driver/GPU clears whole buffer only, itís fine to clear globally,
-	// but best is to scissor to your floorís screen bounds if you have them.
+	// If your driver/GPU clears whole buffer only, it‚Äôs fine to clear globally,
+	// but best is to scissor to your floor‚Äôs screen bounds if you have them.
 	// This is still safe:
 	glClear(GL_DEPTH_BUFFER_BIT);
 
@@ -1918,6 +1919,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 				mu.popMatrix(gmu::MODEL);
 			}
 		}
+
 
 		// TRANSPARENT (GLASS) BUILDINGS
 		glEnable(GL_BLEND);
@@ -2006,7 +2008,8 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		// restore normal writes
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-
+		drawAllImportedModels();
+		
 
 		// PACKAGE
 		if (package.active && packageMeshID >= 0) {
@@ -2099,7 +2102,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			const float* beamPos = (!package.beingCarried) ? package.pos : package.destPos;
 			float beamHeight = 14.0f, beamRadius = 3.0f;
 
-			// Same MODEL setup you already had ó inside the lambda so both passes use the exact matrices.
+			// Same MODEL setup you already had ‚Äî inside the lambda so both passes use the exact matrices.
 			auto drawBeamGeometry = [&]() {
 				dataMesh data{};
 				mu.pushMatrix(gmu::MODEL);
@@ -2157,7 +2160,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 		}
 	}
 
-	// Weíre done using stencil for reflection
+	// We‚Äôre done using stencil for reflection
 	glDisable(GL_STENCIL_TEST);
 	glStencilMask(0xFF);
 
@@ -2312,7 +2315,7 @@ static void drawWorldNoHUD_FromCamera(const Camera& cam, float aspect) {
 			}
 		}
 
-		drawAllImportedModels();
+
 		// TRANSPARENT (GLASS) BUILDINGS
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -2812,7 +2815,7 @@ void renderSim(void) {
 
 		// --- MAIN WORLD PASS (full screen / active camera) ---
 		// Stencil has 1s in the inset; we just render normally here.
-		glStencilMask(0x00);            // donít modify stencil
+		glStencilMask(0x00);            // don‚Äôt modify stencil
 		glStencilFunc(GL_NOTEQUAL, 1, 0xFF);  // draw everywhere EXCEPT where stencil == 1
 
 		drawWorldNoHUD_FromCamera(cams[activeCam], aspectRatio);
@@ -2825,7 +2828,7 @@ void renderSim(void) {
 		// Height above the drone
 		float topHeight = 40.0f;
 
-		// derive direction from droneís yaw (dirAngle)
+		// derive direction from drone‚Äôs yaw (dirAngle)
 		float yawRad = drone.dirAngle * 3.14159f / 180.0f;
 		float dx = sinf(yawRad);
 		float dz = cosf(yawRad);
@@ -2865,14 +2868,14 @@ void renderSim(void) {
 		glStencilMask(0xFF);
 
 		drawRectBorderPx(insetX, insetY, insetW, insetH,
-			3,         // thickness in pixels (try 1ñ3)
+			3,         // thickness in pixels (try 1‚Äì3)
 			1.0f, 1.0f, 1.0f, 1.0f);
 	}
 
 	if (flareEffect && pointLightsOn && !spotLightsOn) {
 		int vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
 
-		// Choose one point light to ìflareîótemplate uses a single point light.
+		// Choose one point light to ‚Äúflare‚Äù‚Äîtemplate uses a single point light.
 		float Lw[4] = { pointLightPos[0][0], pointLightPos[0][1], pointLightPos[0][2], 1.0f };
 		int lx = 0, ly = 0;
 		if (worldToScreen_activeCam(Lw, lx, ly)) {
@@ -2904,10 +2907,15 @@ void renderSim(void) {
 	}
 
 	if (paused) {
-		int textX = WinX / 2 - 100;
-		int textY = WinY / 2;
-		drawText2D("PAUSED", textX, textY, 1.2f, 1.0f, 0.0f, 0.0f);
+		std::string msg = "PAUSED";
+		float scale = 1.0f;
+
+		int textX = WinX / 2 - 100.0f;
+		int textY = WinY/2 - 40.0f;
+
+		drawText2D(msg, textX, textY, scale, 1.0f, 0.0f, 0.0f);
 	}
+
 
 	//  HUD (Battery + Score)
 	renderer.renderHUD(batteryLevel, playerScore, WinX, WinY);
@@ -3065,7 +3073,7 @@ void processMouseMotion(int xx, int yy)
 			cam2_yawOffset += deltaX * 0.2f;   // sensitivity
 			cam2_pitchOffset += -deltaY * 0.2f;
 
-			// clamp pitch so camera doesnít flip
+			// clamp pitch so camera doesn‚Äôt flip
 			if (cam2_pitchOffset > 60.0f)  cam2_pitchOffset = 60.0f;
 			if (cam2_pitchOffset < -30.0f) cam2_pitchOffset = -30.0f;
 
@@ -3416,7 +3424,7 @@ void buildScene()
 
 	srand((unsigned)time(NULL));
 
-	// Dedicated small cube for flying objects (bright so itís visible)
+	// Dedicated small cube for flying objects (bright so it‚Äôs visible)
 	{
 		MyMesh mob = createCube();
 		float amb[] = { 0.15f, 0.3f, 0.15f, 1.0f };   // subtle ambient
@@ -3496,8 +3504,7 @@ void buildScene()
 		ilInit();
 
 		// 3.2 Ask the folder name like the demo does
-		std::string name; std::cout << "Input the directory name containing the OBJ file: ";
-		std::cin >> name;
+		std::string name = "spider";
 
 		// Build OBJ path "folder/folder.obj" and set model_dir="folder/"
 		std::string filepath = name + "/" + name + ".obj";
@@ -3515,9 +3522,11 @@ void buildScene()
 			// Add one instance (you can push_back more with different transforms)
 			ImportedModel m{};
 			m.scene = gScene;
-			m.pos[0] = 0.0f; m.pos[1] = 1.0f; m.pos[2] = -20.0f;
+			m.pos[0] = 18.0f;   // √† droite de la ville
+			m.pos[1] = 2.0f;    // l√©g√®rement au-dessus du sol
+			m.pos[2] = 5.0f;   // un peu en avant
+			m.scale = 6.0f;    // plus raisonnable pour une cr√©ature
 			m.rot[0] = 0.0f; m.rot[1] = 0.0f; m.rot[2] = 0.0f;
-			m.scale = 8.0f;           // try 6ñ12; 8 is a good city scale
 			m.doubleSided = true;     // avoids missing faces if OBJ has flipped winding
 			gImported.push_back(m);
 		}
